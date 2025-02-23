@@ -1,4 +1,4 @@
-package db
+package repositories
 
 import (
 	"context"
@@ -8,17 +8,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Insert(pool *pgxpool.Pool, ctx context.Context, username, password string) error {
+type UserRepository struct {
+	pool *pgxpool.Pool
+}
+
+func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
+	return &UserRepository{pool: pool}
+}
+
+func (r *UserRepository) Insert(ctx context.Context, username, password string) error {
 	query := "INSERT INTO users (username, password) VALUES ($1, $2)"
-	_, err := pool.Exec(ctx, query, username, password)
+	_, err := r.pool.Exec(ctx, query, username, password)
 
 	return err
 }
 
-func CheckUserExists(pool *pgxpool.Pool, ctx context.Context, username string) (bool, error) {
+func (r *UserRepository) CheckUserExists(ctx context.Context, username string) (bool, error) {
 	var res int
 	query := "SELECT 1 FROM users WHERE username = $1 LIMIT 1"
-	err := pool.QueryRow(ctx, query, username).Scan(&res)
+	err := r.pool.QueryRow(ctx, query, username).Scan(&res)
 
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -30,12 +38,12 @@ func CheckUserExists(pool *pgxpool.Pool, ctx context.Context, username string) (
 	return true, nil
 }
 
-func FetchHashedPassword(pool *pgxpool.Pool, ctx context.Context, username string) (string, error) {
+func (r *UserRepository) FetchHashedPassword(ctx context.Context, username string) (string, error) {
 	var res string
 
 	query := "SELECT password FROM users WHERE username = $1 LIMIT 1"
 
-	err := pool.QueryRow(ctx, query, username).Scan(&res)
+	err := r.pool.QueryRow(ctx, query, username).Scan(&res)
 
 	if err != nil {
 		return "", err
@@ -44,10 +52,10 @@ func FetchHashedPassword(pool *pgxpool.Pool, ctx context.Context, username strin
 	return res, nil
 }
 
-func FetchUser(pool *pgxpool.Pool, ctx context.Context, username string) (*models.User, error) {
+func (r *UserRepository) FetchUser(ctx context.Context, username string) (*models.User, error) {
 	query := "SELECT id, username FROM users WHERE username = $1"
 
-	rows, err := pool.Query(ctx, query, username)
+	rows, err := r.pool.Query(ctx, query, username)
 
 	if err != nil {
 		return nil, err

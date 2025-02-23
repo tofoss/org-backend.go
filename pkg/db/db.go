@@ -16,7 +16,6 @@ func NewPool() *pgxpool.Pool {
 	if err != nil {
 		log.Fatal("Unable to connect to database:", err)
 	}
-	defer pool.Close()
 
 	return pool
 }
@@ -26,12 +25,6 @@ func buildPostgresDSN() string {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to parse PG config: %v", err))
 	}
-
-	config.Host = getEnv("POSTGRES_HOST", "localhost")
-	config.Port = uint16(mustAtoi(getEnv("POSTGRES_PORT", "5432")))
-	config.Database = getEnv("POSTGRES_DB", "mydb")
-	config.User = getEnv("POSTGRES_USER", "postgres")
-	config.Password = getEnv("POSTGRES_PASSWORD", "")
 
 	return config.ConnString()
 }
