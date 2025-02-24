@@ -13,3 +13,7 @@ func InternalServerError(w http.ResponseWriter) {
 func Conflict(w http.ResponseWriter, msg string) {
 	http.Error(w, msg, http.StatusConflict)
 }
+
+func Unauthorized(w http.ResponseWriter, msg string) {
+	http.Error(w, msg, http.StatusUnauthorized)
+}

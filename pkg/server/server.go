@@ -13,7 +13,13 @@ import (
 )
 
 func NewServer(pool *pgxpool.Pool) *chi.Mux {
-	secretKey, err := utils.GenerateHS512Key()
+	jwtKey, err := utils.GenerateHS512Key()
+
+	if err != nil {
+		panic(err)
+	}
+
+	xsrfKey, err := utils.GenerateHS512Key()
 
 	if err != nil {
 		panic(err)
@@ -21,7 +27,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 
 	userRepository := repositories.NewUserRepository(pool)
 
-	userHandler := handlers.NewUserHandler(userRepository)
+	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
 
 	public := chi.NewRouter()
 	public.Use(middleware.CorsMiddleware)
@@ -31,7 +37,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 	public.Post("/users/register", userHandler.Register)
 
 	protected := chi.NewRouter()
-	protected.Use(middleware.JWTMiddleware(secretKey), middleware.CorsMiddleware, chiMiddleware.Logger)
+	protected.Use(middleware.JWTMiddleware(jwtKey), middleware.CorsMiddleware, chiMiddleware.Logger)
 
 	return public
 }

@@ -7,18 +7,25 @@ import (
 	repositories "tofoss/org-go/pkg/db/users"
 	"tofoss/org-go/pkg/handlers/errors"
 	"tofoss/org-go/pkg/handlers/requests"
+	"tofoss/org-go/pkg/utils"
 
+	"github.com/golang-jwt/jwt"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/net/xsrftoken"
 )
 
 type UserHandler struct {
-	repo *repositories.UserRepository
+	repo    *repositories.UserRepository
+	jwtKey  string
+	xsrfKey string
 }
 
 func NewUserHandler(
 	repo *repositories.UserRepository,
+	jwtKey string,
+	xsrfKey string,
 ) UserHandler {
-	return UserHandler{repo}
+	return UserHandler{repo, jwtKey, xsrfKey}
 }
 
 func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -58,6 +65,75 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(200)
+}
+
+func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req requests.Login
+	err := json.NewDecoder(r.Body).Decode(&req)
+
+	if err != nil {
+		log.Printf("could not decode request, %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	hash, err := h.repo.FetchHashedPassword(r.Context(), req.Username)
+	if err != nil {
+		log.Printf("could fetch hashed password, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	if !verifyPassord(hash, req.Password) {
+		log.Printf("user %s failed login attempt", req.Username)
+		errors.Unauthorized(w, "invalid username or password")
+		return
+	}
+
+	user, err := h.repo.FetchUser(r.Context(), req.Username)
+	if err != nil {
+		log.Printf("failed to fetch user, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	claims := jwt.MapClaims{
+		"sub": user.ID.String(),
+	}
+
+	jwt, err := utils.SignJWT(h.jwtKey, claims)
+	if err != nil {
+		log.Printf("failed to sign jwt, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	jwtCookie := http.Cookie{
+		Name:     "JWT-Cookie",
+		Value:    jwt,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+
+	xsrfCookie := http.Cookie{
+		Name:     "JWT-Cookie",
+		Value:    xsrftoken.Generate(h.xsrfKey, user.ID.String(), ""),
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   86400,
+	}
+
+	http.SetCookie(w, &jwtCookie)
+	http.SetCookie(w, &xsrfCookie)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Login successful"})
 }
 
 func hashPassword(password string) (string, error) {
@@ -75,36 +151,6 @@ func verifyPassord(hash, password string) bool {
 }
 
 /*
-registerHandler :: Connection -> RegisterRequest -> Handler RegisterResponse
-registerHandler conn RegisterRequest {..} = do
-  userExists <- liftIO $ checkUserExists conn username
-  if userExists
-    then throwError err409 {errBody = "Username already exists"}
-    else handleUserRegistration conn username password
-
-handleUserRegistration :: Connection -> String -> String -> Handler RegisterResponse
-handleUserRegistration conn username password = do
-  hashedPassword <- hashPassword password
-  registerUser conn username hashedPassword
-
-hashPassword :: String -> Handler String
-hashPassword password = do
-  maybeHashedPassword <- liftIO $ hashPassword' password
-  case maybeHashedPassword of
-    Nothing -> throwError err500 {errBody = "Password hashing failed"}
-    Just hash -> return hash
-
-registerUser :: Connection -> String -> String -> Handler RegisterResponse
-registerUser conn username hashedPassword = do
-  success <- liftIO $ insertUser conn username hashedPassword
-  if success
-    then return RegisterResponse {message = "Success"}
-    else throwError err500 {errBody = "User registration failed"}
-
-authStatusHandler :: AuthResult User -> Handler AuthStatusResponse
-authStatusHandler (Authenticated User {..}) = return $ AuthStatusResponse True username
-authStatusHandler _ = return $ AuthStatusResponse False ""
-
 loginHandler ::
   Connection ->
   CookieSettings ->
@@ -150,5 +196,9 @@ verifyUser conn username password = do
           return Nothing
         else do
           liftIO $ fetchUser conn username
+
+authStatusHandler :: AuthResult User -> Handler AuthStatusResponse
+authStatusHandler (Authenticated User {..}) = return $ AuthStatusResponse True username
+authStatusHandler _ = return $ AuthStatusResponse False ""
 
 */
