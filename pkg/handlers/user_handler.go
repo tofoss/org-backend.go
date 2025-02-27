@@ -119,7 +119,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	xsrfCookie := http.Cookie{
-		Name:     "JWT-Cookie",
+		Name:     "XSRF-TOKEN",
 		Value:    xsrftoken.Generate(h.xsrfKey, user.ID.String(), ""),
 		Path:     "/",
 		HttpOnly: true,
