@@ -37,7 +37,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 	public.Post("/users/register", userHandler.Register)
 
 	protected := chi.NewRouter()
-	protected.Use(middleware.JWTMiddleware(jwtKey), middleware.CorsMiddleware, chiMiddleware.Logger)
+	protected.Use(middleware.JWTMiddleware(jwtKey), middleware.CorsMiddleware, chiMiddleware.Logger, middleware.XSRFProtection)
 
 	return public
 }
