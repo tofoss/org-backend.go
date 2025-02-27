@@ -35,6 +35,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 
 	public.Get("/", HomeHandler)
 	public.Post("/users/register", userHandler.Register)
+	public.Post("/users/login", userHandler.Login)
 
 	protected := chi.NewRouter()
 	protected.Use(middleware.JWTMiddleware(jwtKey), middleware.CorsMiddleware, chiMiddleware.Logger, middleware.XSRFProtection)

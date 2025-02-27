@@ -80,7 +80,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := h.repo.FetchHashedPassword(r.Context(), req.Username)
 	if err != nil {
-		log.Printf("could fetch hashed password, %v", err)
+		log.Printf("could not fetch hashed password, %v", err)
 		errors.InternalServerError(w)
 		return
 	}
