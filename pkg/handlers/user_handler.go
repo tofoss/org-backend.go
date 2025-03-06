@@ -7,6 +7,7 @@ import (
 	repositories "tofoss/org-go/pkg/db/users"
 	"tofoss/org-go/pkg/handlers/errors"
 	"tofoss/org-go/pkg/handlers/requests"
+	"tofoss/org-go/pkg/handlers/responses"
 	"tofoss/org-go/pkg/utils"
 
 	"github.com/golang-jwt/jwt"
@@ -16,16 +17,45 @@ import (
 
 type UserHandler struct {
 	repo    *repositories.UserRepository
-	jwtKey  string
-	xsrfKey string
+	jwtKey  []byte
+	xsrfKey []byte
 }
 
 func NewUserHandler(
 	repo *repositories.UserRepository,
-	jwtKey string,
-	xsrfKey string,
+	jwtKey []byte,
+	xsrfKey []byte,
 ) UserHandler {
 	return UserHandler{repo, jwtKey, xsrfKey}
+}
+
+func (h *UserHandler) Status(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	res := responses.AuthStatus{
+		LoggedIn: false,
+	}
+
+	claims, err := utils.ParseHeaderJWTClaims(r, h.jwtKey)
+	if err != nil {
+		log.Println("unable to parse claims")
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+
+	userID, username, err := utils.ExtractUserInfo(claims)
+	if err != nil {
+		log.Println("userID or username not found in claims")
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+
+	res.LoggedIn = true
+	res.UserID = userID.String()
+	res.Username = username
+
+	json.NewEncoder(w).Encode(res)
 }
 
 func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +129,8 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := jwt.MapClaims{
-		"sub": user.ID.String(),
+		"sub":      user.ID.String(),
+		"username": user.Username,
 	}
 
 	jwt, err := utils.SignJWT(h.jwtKey, claims)
@@ -120,7 +151,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	xsrfCookie := http.Cookie{
 		Name:     "XSRF-TOKEN",
-		Value:    xsrftoken.Generate(h.xsrfKey, user.ID.String(), ""),
+		Value:    xsrftoken.Generate(string(h.xsrfKey), user.ID.String(), ""),
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
@@ -149,56 +180,3 @@ func verifyPassord(hash, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
 }
-
-/*
-loginHandler ::
-  Connection ->
-  CookieSettings ->
-  JWTSettings ->
-  LoginRequest ->
-  Handler (Headers '[Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] NoContent)
-loginHandler conn cookieSettings jwtSettings loginRequest = do
-  authResult <- liftIO $ authCheck conn loginRequest
-  loginUser cookieSettings jwtSettings authResult
-
-loginUser ::
-  CookieSettings ->
-  JWTSettings ->
-  AuthResult User ->
-  Handler (Headers '[Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] NoContent)
-loginUser cookieSettings jwtSettings authResult =
-    auth authResult $ createCookies cookieSettings jwtSettings
-
-createCookies ::
-  CookieSettings ->
-  JWTSettings ->
-  User ->
-  Handler (Headers '[Header "Set-Cookie" SetCookie, Header "Set-Cookie" SetCookie] NoContent)
-createCookies cookieSettings jwtSettings user = do
-  cookies <- liftIO $ acceptLogin cookieSettings jwtSettings user
-  case cookies of
-    Nothing -> throwError err500 {errBody = "Failed to create session"}
-    Just c -> return $ c NoContent
-
-authCheck :: Connection -> LoginRequest -> IO (AuthResult User)
-authCheck conn LoginRequest {..} = do
-  result <- verifyUser conn loginUsername loginPassword
-  pure $ maybe Indefinite Authenticated result
-
-verifyUser :: Connection -> String -> String -> IO (Maybe User)
-verifyUser conn username password = do
-  maybePassword <- liftIO $ fetchHashedPassword conn username
-  case maybePassword of
-    Nothing -> return Nothing
-    Just hash -> do
-      if not (verifyPassword password hash)
-        then do
-          return Nothing
-        else do
-          liftIO $ fetchUser conn username
-
-authStatusHandler :: AuthResult User -> Handler AuthStatusResponse
-authStatusHandler (Authenticated User {..}) = return $ AuthStatusResponse True username
-authStatusHandler _ = return $ AuthStatusResponse False ""
-
-*/

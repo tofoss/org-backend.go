@@ -3,44 +3,26 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"strings"
 	"tofoss/org-go/pkg/utils"
-
-	"github.com/google/uuid"
 )
 
-func JWTMiddleware(secret string) func(http.Handler) http.Handler {
+func JWTMiddleware(key []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var token string
-
-			authHeader := r.Header.Get("Authorization")
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
-			}
-
-			claims, err := utils.ParseJWT(secret, token)
+			claims, err := utils.ParseHeaderJWTClaims(r, key)
 			if err != nil {
 				http.Error(w, "Unautorized", http.StatusUnauthorized)
 				return
 			}
 
-			sub, ok := claims["sub"].(string)
-
-			if !ok {
-				http.Error(w, "invalid token", http.StatusUnauthorized)
-				return
-			}
-
-			userID, err := uuid.Parse(sub)
+			userID, username, err := utils.ExtractUserInfo(claims)
 			if err != nil {
-				http.Error(w, "invalid token", http.StatusUnauthorized)
-				return
+				http.Error(w, err.Error(), http.StatusUnauthorized)
 			}
 
 			ctx := context.WithValue(r.Context(), "userID", userID)
+			ctx = context.WithValue(ctx, "username", username)
 			next.ServeHTTP(w, r.WithContext(ctx))
-
 		})
 	}
 }
