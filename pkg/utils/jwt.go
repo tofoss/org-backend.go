@@ -42,40 +42,50 @@ func ParseJWT(key []byte, jwtString string) (map[string]interface{}, error) {
 func ExtractUserInfo(claims map[string]interface{}) (uuid.UUID, string, error) {
 	sub, ok := claims["sub"].(string)
 
-	invalidTokenError := func() (uuid.UUID, string, error) {
-		return uuid.Nil, "", fmt.Errorf("invalid token")
+	invalidClaimsError := func(msg string) (uuid.UUID, string, error) {
+		return uuid.Nil, "", fmt.Errorf("invalid claims, %s", msg)
 	}
 
 	if !ok {
-		return invalidTokenError()
+		return invalidClaimsError("sub is missing")
 	}
 
 	userID, err := uuid.Parse(sub)
 	if err != nil {
-		return invalidTokenError()
+		return invalidClaimsError("sub is invalid uuid")
 	}
 
 	username, ok := claims["username"].(string)
 
 	if !ok {
-		return invalidTokenError()
+		return invalidClaimsError("username claim is invalid")
 	}
 
 	return userID, username, nil
 }
 
 func ParseHeaderJWTClaims(r *http.Request, jwtKey []byte) (map[string]interface{}, error) {
-	var token string
-	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token = strings.TrimPrefix(authHeader, "Bearer ")
+	token := extractBearerToken(r.Header.Get("Authorization"))
+
+	if token == "" {
+		jwtCookie, err := r.Cookie("JWT-Cookie")
+		if err != nil {
+			return nil, fmt.Errorf("JWT not found in header or cookie: %w", err)
+		}
+		token = jwtCookie.Value
 	}
 
-	claims, err := ParseJWT(jwtKey, strings.Trim(token, " "))
+	claims, err := ParseJWT(jwtKey, strings.TrimSpace(token))
 	if err != nil {
-		log.Printf("unable to parse JWT %v", err)
-		return nil, err
+		return nil, fmt.Errorf("unable to parse JWT: %w", err)
 	}
 
 	return claims, nil
+}
+
+func extractBearerToken(authHeader string) string {
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	return ""
 }

@@ -153,7 +153,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Name:     "XSRF-TOKEN",
 		Value:    xsrftoken.Generate(string(h.xsrfKey), user.ID.String(), ""),
 		Path:     "/",
-		HttpOnly: true,
+		HttpOnly: false,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   86400,
