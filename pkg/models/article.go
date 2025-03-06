@@ -7,12 +7,12 @@ import (
 )
 
 type Article struct {
-	ID          uuid.UUID  `db:"id"`
-	UserID      uuid.UUID  `db:"user_id"`
-	Title       string     `db:"title"`
-	Content     string     `db:"content"`
-	CreatedAt   time.Time  `db:"created_at"`
-	UpdatedAt   time.Time  `db:"updated_at"`
-	PublishedAt *time.Time `db:"published_at"`
-	Published   bool       `db:"published"`
+	ID          uuid.UUID  `json:"id"          db:"id"`
+	UserID      uuid.UUID  `json:"userId"      db:"user_id"`
+	Title       string     `json:"title"       db:"title"`
+	Content     string     `json:"content"     db:"content"`
+	CreatedAt   time.Time  `json:"createdAt"   db:"created_at"`
+	UpdatedAt   time.Time  `json:"updatedAt"   db:"updated_at"`
+	PublishedAt *time.Time `json:"publishedAt" db:"published_at"`
+	Published   bool       `json:"published"   db:"published"`
 }

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	repositories "tofoss/org-go/pkg/db/users"
+	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
 	"tofoss/org-go/pkg/handlers/requests"
 	"tofoss/org-go/pkg/handlers/responses"

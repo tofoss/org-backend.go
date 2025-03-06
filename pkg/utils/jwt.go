@@ -43,7 +43,7 @@ func ExtractUserInfo(claims map[string]interface{}) (uuid.UUID, string, error) {
 	sub, ok := claims["sub"].(string)
 
 	invalidTokenError := func() (uuid.UUID, string, error) {
-		return uuid.Max, "", fmt.Errorf("invalid token")
+		return uuid.Nil, "", fmt.Errorf("invalid token")
 	}
 
 	if !ok {

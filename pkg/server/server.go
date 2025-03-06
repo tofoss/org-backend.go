@@ -1,9 +1,8 @@
 package server
 
 import (
-	"net/http"
 	"os"
-	repositories "tofoss/org-go/pkg/db/users"
+	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers"
 	"tofoss/org-go/pkg/middleware"
 
@@ -24,33 +23,22 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 	}
 
 	userRepository := repositories.NewUserRepository(pool)
+	articleRepository := repositories.NewArticleRepository(pool)
 
 	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
-
-	public := chi.NewRouter()
-
-	public.Get("/", HomeHandler)
-
-	protected := chi.NewRouter()
-	protected.Use(
-		middleware.JWTMiddleware(jwtKey),
-		middleware.CorsMiddleware,
-		chiMiddleware.Logger,
-		middleware.XSRFProtection,
-	)
+	articleHandler := handlers.NewArticleHandler(articleRepository)
 
 	router := chi.NewRouter()
 	router.Use(middleware.CorsMiddleware, chiMiddleware.Logger)
-	router.Mount("/", public)
 	router.Route("/users", func(r chi.Router) {
 		r.Post("/register", userHandler.Register)
 		r.Post("/login", userHandler.Login)
 		r.Get("/status", userHandler.Status)
 	})
+	router.Route("/articles", func(r chi.Router) {
+		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Get("/", articleHandler.FetchUsersArticles)
+	})
 
 	return router
-}
-
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Hello, world"))
 }

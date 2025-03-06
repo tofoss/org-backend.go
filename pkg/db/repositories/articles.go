@@ -13,7 +13,7 @@ type ArticleRepository struct {
 	pool *pgxpool.Pool
 }
 
-func NewUserRepository(pool *pgxpool.Pool) *ArticleRepository {
+func NewArticleRepository(pool *pgxpool.Pool) *ArticleRepository {
 	return &ArticleRepository{pool: pool}
 }
 
