@@ -1,12 +1,19 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"time"
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
+	"tofoss/org-go/pkg/handlers/requests"
+	"tofoss/org-go/pkg/models"
 	"tofoss/org-go/pkg/utils"
+
+	"github.com/google/uuid"
 )
 
 type ArticleHandler struct {
@@ -37,64 +44,102 @@ func (h *ArticleHandler) FetchUsersArticles(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(articles)
 }
 
-/*
-articleHandler :: Connection -> AuthResult User -> Req.ArticleRequest -> Handler Article
-articleHandler conn authResult req = auth authResult $ handleArticleReq conn req
+func (h *ArticleHandler) PostArticle(w http.ResponseWriter, r *http.Request) {
+	var req requests.Article
+	err := json.NewDecoder(r.Body).Decode(&req)
 
-handleArticleReq :: Connection -> Req.ArticleRequest -> User -> Handler Article
-handleArticleReq conn req user = case Req.articleId req of
-  Just id -> updateArticle conn req user id
-  Nothing -> createArticle conn req user
+	if err != nil {
+		log.Printf("could not decode request, %v", err)
+		errors.BadRequest(w)
+		return
+	}
 
-createArticle :: Connection -> Req.ArticleRequest -> User -> Handler Article
-createArticle conn req user = do
-  currentTime <- liftIO getCurrentTime
-  id <- liftIO nextRandom
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to fetch users articles: %v", err)
+		errors.InternalServerError(w)
+	}
 
-  let article =
-        Article
-          { articleId = id,
-            articlePublished = Req.articlePublished req,
-            articlePublishedAt = if Req.articlePublished req then Just currentTime else Nothing,
-            articleUpdatedAt = currentTime,
-            articleCreatedAt = currentTime,
-            articleContent = Req.articleContent req,
-            articleTitle = "title",
-            articleUserId = userId user
-          }
+	var article *models.Article
+	if req.ID == uuid.Nil {
+		article, err = h.createArticle(req, userID, r.Context())
+	} else {
+		article, err = h.updateArticle(req, userID, r.Context())
+	}
 
-  maybeArticle <- liftIO $ upsertArticle conn article
-  unwrap maybeArticle
+	if err != nil {
+		log.Printf("could not upsert article: %v", err)
+		errors.InternalServerError(w)
+	}
 
-updateArticle :: Connection -> Req.ArticleRequest -> User -> UUID -> Handler Article
-updateArticle conn req user id = do
-  article <- liftIO $ fetchArticle conn id (userId user)
-  updateArticle' conn req article
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(article)
+}
 
-updateArticle' :: Connection -> Req.ArticleRequest -> Maybe Article -> Handler Article
-updateArticle' _ _ Nothing = throwError err403 {errBody = "Could not update article - Invalid credentials"}
-updateArticle' conn req (Just article) = do
-  currentTime <- liftIO getCurrentTime
+func (h *ArticleHandler) createArticle(
+	req requests.Article,
+	userID uuid.UUID,
+	ctx context.Context,
+) (*models.Article, error) {
+	now := time.Now()
+	var publishedAt *time.Time
 
-  let updatedArticle =
-        article
-          { articlePublished = Req.articlePublished req,
-            articlePublishedAt = publishedAt article req currentTime,
-            articleUpdatedAt = currentTime,
-            articleContent = Req.articleContent req,
-            articleTitle = "title"
-          }
+	if req.Published {
+		publishedAt = &now
+	}
 
-  maybeArticle <- liftIO $ upsertArticle conn updatedArticle
-  unwrap maybeArticle
+	article := models.Article{
+		ID:          uuid.New(),
+		UserID:      userID,
+		Title:       "",
+		Content:     req.Content,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		PublishedAt: publishedAt,
+		Published:   req.Published,
+	}
 
-publishedAt :: Article -> Req.ArticleRequest -> UTCTime -> Maybe UTCTime
-publishedAt article req now
-  | articlePublished article == Req.articlePublished req = articlePublishedAt article
-  | Req.articlePublished req = Just now
-  | otherwise = articlePublishedAt article
+	result, err := h.repo.Upsert(ctx, article)
 
-unwrap :: Maybe a -> Handler a
-unwrap (Just x) = return x
-unwrap Nothing = throwError err500 {errBody = "Internal server error - failed to fetch article"}
-*/
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (h *ArticleHandler) updateArticle(
+	req requests.Article,
+	userID uuid.UUID,
+	ctx context.Context,
+) (*models.Article, error) {
+	original, err := h.repo.FetchArticle(ctx, req.ID, userID)
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to upsert article, invalid credentials, %v", err)
+	}
+
+	now := time.Now()
+	var publishedAt *time.Time
+
+	if req.Published && original.Published {
+		publishedAt = original.PublishedAt
+	} else if req.Published {
+		publishedAt = &now
+	}
+
+	update := original
+	update.Content = req.Content
+	update.UpdatedAt = now
+	update.PublishedAt = publishedAt
+	update.Published = req.Published
+
+	result, err := h.repo.Upsert(ctx, update)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}

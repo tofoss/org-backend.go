@@ -21,8 +21,6 @@ func (r *ArticleRepository) Upsert(
 	ctx context.Context,
 	article models.Article,
 ) (models.Article, error) {
-	var res models.Article
-
 	query := `
 		INSERT INTO articles (id, user_id, title, content, created_at, updated_at, published_at, published) 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -35,7 +33,7 @@ func (r *ArticleRepository) Upsert(
 			published = EXCLUDED.published 
         RETURNING id, user_id, title, content, created_at, updated_at, published_at, published`
 
-	err := r.pool.QueryRow(ctx, query,
+	rows, err := r.pool.Query(ctx, query,
 		article.ID,
 		article.UserID,
 		article.Title,
@@ -44,9 +42,18 @@ func (r *ArticleRepository) Upsert(
 		article.UpdatedAt,
 		article.PublishedAt,
 		article.Published,
-	).Scan(&res)
+	)
+
+	if err != nil {
+		return models.Article{}, err
+	}
+
+	defer rows.Close()
+
+	res, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[models.Article])
 
 	return res, err
+
 }
 
 func (r *ArticleRepository) FetchArticle(
@@ -54,11 +61,17 @@ func (r *ArticleRepository) FetchArticle(
 	articleID uuid.UUID,
 	userID uuid.UUID,
 ) (models.Article, error) {
-	var res models.Article
-
 	query := "select id, user_id, title, content, created_at, updated_at, published_at, published from articles where id = $1 and user_id = $2"
 
-	err := r.pool.QueryRow(ctx, query, articleID, userID).Scan(&res)
+	rows, err := r.pool.Query(ctx, query, articleID, userID)
+
+	if err != nil {
+		return models.Article{}, err
+	}
+
+	defer rows.Close()
+
+	res, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[models.Article])
 
 	return res, err
 }
