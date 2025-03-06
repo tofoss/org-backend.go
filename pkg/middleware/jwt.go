@@ -20,8 +20,8 @@ func JWTMiddleware(key []byte) func(http.Handler) http.Handler {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 			}
 
-			ctx := context.WithValue(r.Context(), "userID", userID)
-			ctx = context.WithValue(ctx, "username", username)
+			ctx := context.WithValue(r.Context(), utils.UserIDKey, userID)
+			ctx = context.WithValue(ctx, utils.UsernameKey, username)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
