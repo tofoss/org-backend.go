@@ -59,6 +59,25 @@ func (r *ArticleRepository) Upsert(
 func (r *ArticleRepository) FetchArticle(
 	ctx context.Context,
 	articleID uuid.UUID,
+) (models.Article, error) {
+	query := "select id, user_id, title, content, created_at, updated_at, published_at, published from articles where id = $1"
+
+	rows, err := r.pool.Query(ctx, query, articleID)
+
+	if err != nil {
+		return models.Article{}, err
+	}
+
+	defer rows.Close()
+
+	res, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[models.Article])
+
+	return res, err
+}
+
+func (r *ArticleRepository) FetchUsersArticle(
+	ctx context.Context,
+	articleID uuid.UUID,
 	userID uuid.UUID,
 ) (models.Article, error) {
 	query := "select id, user_id, title, content, created_at, updated_at, published_at, published from articles where id = $1 and user_id = $2"

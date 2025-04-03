@@ -38,6 +38,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 	router.Route("/articles", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
 		r.Get("/", articleHandler.FetchUsersArticles)
+		r.Get("/{id}", articleHandler.FetchArticle)
 		r.Post("/", articleHandler.PostArticle)
 	})
 

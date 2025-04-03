@@ -10,10 +10,13 @@ import (
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
 	"tofoss/org-go/pkg/handlers/requests"
+	"tofoss/org-go/pkg/handlers/responses"
 	"tofoss/org-go/pkg/models"
 	"tofoss/org-go/pkg/utils"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type ArticleHandler struct {
@@ -24,6 +27,53 @@ func NewArticleHandler(
 	repo *repositories.ArticleRepository,
 ) ArticleHandler {
 	return ArticleHandler{repo}
+}
+
+func (h *ArticleHandler) FetchArticle(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to article, user not logged in: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	articleID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		log.Printf("unable to parse article id: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	article, err := h.repo.FetchArticle(r.Context(), articleID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			log.Printf("article %s not found %v", articleID, err)
+			errors.NotFound(w, "article not found")
+			return
+		}
+		log.Printf("unable to fetch article %s: %v", articleID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	if !article.Published && article.UserID != userID {
+		log.Printf(
+			"%s does not have access to article %s which is not published",
+			userID,
+			articleID,
+		)
+		errors.Unauthenticated(w)
+		return
+	}
+
+	response := responses.FetchArticleResponse{
+		Article:    article,
+		IsEditable: userID == article.UserID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }
 
 func (h *ArticleHandler) FetchUsersArticles(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +164,7 @@ func (h *ArticleHandler) updateArticle(
 	userID uuid.UUID,
 	ctx context.Context,
 ) (*models.Article, error) {
-	original, err := h.repo.FetchArticle(ctx, req.ID, userID)
+	original, err := h.repo.FetchUsersArticle(ctx, req.ID, userID)
 
 	if err != nil {
 		return nil, fmt.Errorf("unable to upsert article, invalid credentials, %v", err)
