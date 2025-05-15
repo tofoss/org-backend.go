@@ -19,56 +19,56 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type ArticleHandler struct {
-	repo *repositories.ArticleRepository
+type NoteHandler struct {
+	repo *repositories.NoteRepository
 }
 
-func NewArticleHandler(
-	repo *repositories.ArticleRepository,
-) ArticleHandler {
-	return ArticleHandler{repo}
+func NewNoteHandler(
+	repo *repositories.NoteRepository,
+) NoteHandler {
+	return NoteHandler{repo}
 }
 
-func (h *ArticleHandler) FetchArticle(w http.ResponseWriter, r *http.Request) {
+func (h *NoteHandler) FetchNote(w http.ResponseWriter, r *http.Request) {
 	userID, _, err := utils.UserContext(r)
 	if err != nil {
-		log.Printf("unable to article, user not logged in: %v", err)
+		log.Printf("unable to note, user not logged in: %v", err)
 		errors.InternalServerError(w)
 		return
 	}
 
-	articleID, err := uuid.Parse(chi.URLParam(r, "id"))
+	noteID, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
-		log.Printf("unable to parse article id: %v", err)
+		log.Printf("unable to parse note id: %v", err)
 		errors.BadRequest(w)
 		return
 	}
 
-	article, err := h.repo.FetchArticle(r.Context(), articleID)
+	note, err := h.repo.FetchNote(r.Context(), noteID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			log.Printf("article %s not found %v", articleID, err)
-			errors.NotFound(w, "article not found")
+			log.Printf("note %s not found %v", noteID, err)
+			errors.NotFound(w, "note not found")
 			return
 		}
-		log.Printf("unable to fetch article %s: %v", articleID, err)
+		log.Printf("unable to fetch note %s: %v", noteID, err)
 		errors.InternalServerError(w)
 		return
 	}
 
-	if !article.Published && article.UserID != userID {
+	if !note.Published && note.UserID != userID {
 		log.Printf(
-			"%s does not have access to article %s which is not published",
+			"%s does not have access to note %s which is not published",
 			userID,
-			articleID,
+			noteID,
 		)
 		errors.Unauthenticated(w)
 		return
 	}
 
-	response := responses.FetchArticleResponse{
-		Article:    article,
-		IsEditable: userID == article.UserID,
+	response := responses.FetchNoteResponse{
+		Note:    note,
+		IsEditable: userID == note.UserID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -76,26 +76,26 @@ func (h *ArticleHandler) FetchArticle(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (h *ArticleHandler) FetchUsersArticles(w http.ResponseWriter, r *http.Request) {
+func (h *NoteHandler) FetchUsersNotes(w http.ResponseWriter, r *http.Request) {
 	userID, _, err := utils.UserContext(r)
 	if err != nil {
-		log.Printf("unable to fetch users articles: %v", err)
+		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
 	}
 
-	articles, err := h.repo.FetchUsersArticles(r.Context(), userID)
+	notes, err := h.repo.FetchUsersNotes(r.Context(), userID)
 	if err != nil {
-		log.Printf("unable to fetch users articles: %v", err)
+		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(articles)
+	json.NewEncoder(w).Encode(notes)
 }
 
-func (h *ArticleHandler) PostArticle(w http.ResponseWriter, r *http.Request) {
-	var req requests.Article
+func (h *NoteHandler) PostNote(w http.ResponseWriter, r *http.Request) {
+	var req requests.Note
 	err := json.NewDecoder(r.Body).Decode(&req)
 
 	if err != nil {
@@ -106,32 +106,32 @@ func (h *ArticleHandler) PostArticle(w http.ResponseWriter, r *http.Request) {
 
 	userID, _, err := utils.UserContext(r)
 	if err != nil {
-		log.Printf("unable to fetch users articles: %v", err)
+		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
 	}
 
-	var article *models.Article
+	var note *models.Note
 	if req.ID == uuid.Nil {
-		article, err = h.createArticle(req, userID, r.Context())
+		note, err = h.createNote(req, userID, r.Context())
 	} else {
-		article, err = h.updateArticle(req, userID, r.Context())
+		note, err = h.updateNote(req, userID, r.Context())
 	}
 
 	if err != nil {
-		log.Printf("could not upsert article: %v", err)
+		log.Printf("could not upsert note: %v", err)
 		errors.InternalServerError(w)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(article)
+	json.NewEncoder(w).Encode(note)
 }
 
-func (h *ArticleHandler) createArticle(
-	req requests.Article,
+func (h *NoteHandler) createNote(
+	req requests.Note,
 	userID uuid.UUID,
 	ctx context.Context,
-) (*models.Article, error) {
+) (*models.Note, error) {
 	now := time.Now()
 	var publishedAt *time.Time
 
@@ -139,7 +139,7 @@ func (h *ArticleHandler) createArticle(
 		publishedAt = &now
 	}
 
-	article := models.Article{
+	note := models.Note{
 		ID:          uuid.New(),
 		UserID:      userID,
 		Title:       "",
@@ -150,7 +150,7 @@ func (h *ArticleHandler) createArticle(
 		Published:   req.Published,
 	}
 
-	result, err := h.repo.Upsert(ctx, article)
+	result, err := h.repo.Upsert(ctx, note)
 
 	if err != nil {
 		return nil, err
@@ -159,15 +159,15 @@ func (h *ArticleHandler) createArticle(
 	return &result, nil
 }
 
-func (h *ArticleHandler) updateArticle(
-	req requests.Article,
+func (h *NoteHandler) updateNote(
+	req requests.Note,
 	userID uuid.UUID,
 	ctx context.Context,
-) (*models.Article, error) {
-	original, err := h.repo.FetchUsersArticle(ctx, req.ID, userID)
+) (*models.Note, error) {
+	original, err := h.repo.FetchUsersNote(ctx, req.ID, userID)
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to upsert article, invalid credentials, %v", err)
+		return nil, fmt.Errorf("unable to upsert note, invalid credentials, %v", err)
 	}
 
 	now := time.Now()

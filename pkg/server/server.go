@@ -23,10 +23,10 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 	}
 
 	userRepository := repositories.NewUserRepository(pool)
-	articleRepository := repositories.NewArticleRepository(pool)
+	noteRepository := repositories.NewNoteRepository(pool)
 
 	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
-	articleHandler := handlers.NewArticleHandler(articleRepository)
+	noteHandler := handlers.NewNoteHandler(noteRepository)
 
 	router := chi.NewRouter()
 	router.Use(middleware.CorsMiddleware, chiMiddleware.Logger)
@@ -35,11 +35,11 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 		r.Post("/login", userHandler.Login)
 		r.Get("/status", userHandler.Status)
 	})
-	router.Route("/articles", func(r chi.Router) {
+	router.Route("/notes", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
-		r.Get("/", articleHandler.FetchUsersArticles)
-		r.Get("/{id}", articleHandler.FetchArticle)
-		r.Post("/", articleHandler.PostArticle)
+		r.Get("/", noteHandler.FetchUsersNotes)
+		r.Get("/{id}", noteHandler.FetchNote)
+		r.Post("/", noteHandler.PostNote)
 	})
 
 	return router
