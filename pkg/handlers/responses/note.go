@@ -2,7 +2,7 @@ package responses
 
 import "tofoss/org-go/pkg/models"
 
-type FetchArticleResponse struct {
-	models.Article
+type FetchNoteResponse struct {
+	models.Note
 	IsEditable bool `json:"isEditable"`
 }
