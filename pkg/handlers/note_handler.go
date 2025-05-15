@@ -67,7 +67,7 @@ func (h *NoteHandler) FetchNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := responses.FetchNoteResponse{
-		Note:    note,
+		Note:       note,
 		IsEditable: userID == note.UserID,
 	}
 
