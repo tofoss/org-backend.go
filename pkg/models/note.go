@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Article struct {
+type Note struct {
 	ID          uuid.UUID  `json:"id"          db:"id"`
 	UserID      uuid.UUID  `json:"userId"      db:"user_id"`
 	Title       string     `json:"title"       db:"title"`
