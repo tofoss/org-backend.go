@@ -24,9 +24,15 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 
 	userRepository := repositories.NewUserRepository(pool)
 	noteRepository := repositories.NewNoteRepository(pool)
+	notebookRepository := repositories.NewNotebookRepository(pool)
+	sectionRepository := repositories.NewSectionRepository(pool)
+	tagRepsoitory := repositories.NewTagRepository(pool)
 
 	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
+	notebookHandler := handlers.NewNotebookHandler(notebookRepository)
+	sectionHandler := handlers.NewSectionHandler(sectionRepository)
+	tagHandler := handlers.NewTagHandler(tagRepsoitory)
 
 	router := chi.NewRouter()
 	router.Use(middleware.CorsMiddleware, chiMiddleware.Logger)
@@ -40,6 +46,21 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 		r.Get("/", noteHandler.FetchUsersNotes)
 		r.Get("/{id}", noteHandler.FetchNote)
 		r.Post("/", noteHandler.PostNote)
+	})
+	router.Route("/notebooks", func(r chi.Router) {
+		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Get("/{id}", notebookHandler.FetchNotebook)
+		r.Post("/", notebookHandler.PostNotebook)
+	})
+	router.Route("/sections", func(r chi.Router) {
+		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Get("/{id}", sectionHandler.FetchSection)
+		r.Post("/", sectionHandler.PostSection)
+	})
+	router.Route("/tags", func(r chi.Router) {
+		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Get("/{id}", tagHandler.FetchTag)
+		r.Post("/", tagHandler.PostTag)
 	})
 
 	return router
