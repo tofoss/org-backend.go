@@ -61,6 +61,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
 		r.Get("/{id}", tagHandler.FetchTag)
 		r.Post("/", tagHandler.PostTag)
+		r.Get("/", tagHandler.FetchAll)
 	})
 
 	return router

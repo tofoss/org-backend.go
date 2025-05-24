@@ -19,20 +19,16 @@ func NewTagRepository(pool *pgxpool.Pool) *TagRepository {
 
 func (r *TagRepository) Upsert(
 	ctx context.Context,
-	tag models.Tag,
+	tagName string,
 ) (models.Tag, error) {
 	query := `
-		INSERT INTO tags (id, name)
-		VALUES ($1, $2)
-		ON CONFLICT (id) DO UPDATE SET
-			name = EXCLUDED.name
+		INSERT INTO tags (name)
+		VALUES ($1)
+		ON CONFLICT (name) DO NOTHING
 		RETURNING id, name
 	`
 
-	rows, err := r.pool.Query(ctx, query,
-		tag.ID,
-		tag.Name,
-	)
+	rows, err := r.pool.Query(ctx, query, tagName)
 	if err != nil {
 		return models.Tag{}, err
 	}
@@ -54,4 +50,18 @@ func (r *TagRepository) FetchTag(
 	defer rows.Close()
 
 	return pgx.CollectOneRow(rows, pgx.RowToStructByName[models.Tag])
+}
+
+func (r *TagRepository) FetchAll(
+	ctx context.Context,
+) ([]models.Tag, error) {
+	query := `SELECT id, name FROM tags`
+
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return []models.Tag{}, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[models.Tag])
 }
