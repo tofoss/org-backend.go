@@ -1,21 +1,24 @@
 package parser
 
 import (
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/chromedp/chromedp"
 )
 
 type MainContentExtractor struct {
 	FallbackToBody bool
+	Timeout        time.Duration
 }
 
 func NewMainContentExtractor() *MainContentExtractor {
 	return &MainContentExtractor{
 		FallbackToBody: true,
+		Timeout:        15 * time.Second,
 	}
 }
 
@@ -24,21 +27,26 @@ func (e *MainContentExtractor) ExtractFromURL(url string) (string, error) {
 		url = "https://" + url
 	}
 
-	resp, err := http.Get(url)
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	ctx, cancel = context.WithTimeout(ctx, e.Timeout)
+	defer cancel()
+
+	var html string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.OuterHTML("html", &html),
+	)
 	if err != nil {
-		return "", fmt.Errorf("error making request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("received non-200 response: %d %s", resp.StatusCode, resp.Status)
+		return "", fmt.Errorf("chromedp navigation error: %w", err)
 	}
 
-	return e.ExtractFromReader(resp.Body)
+	return e.ExtractFromHTML(html)
 }
 
-func (e *MainContentExtractor) ExtractFromReader(r io.Reader) (string, error) {
-	doc, err := goquery.NewDocumentFromReader(r)
+func (e *MainContentExtractor) ExtractFromHTML(html string) (string, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
 	if err != nil {
 		return "", fmt.Errorf("error parsing HTML: %w", err)
 	}
@@ -55,13 +63,11 @@ func (e *MainContentExtractor) ExtractFromReader(r io.Reader) (string, error) {
 	}
 
 	text := mainContent.Text()
-
 	text = cleanWhitespace(text)
 
 	return text, nil
 }
 
 func cleanWhitespace(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	return s
+	return strings.Join(strings.Fields(s), " ")
 }
