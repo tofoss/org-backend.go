@@ -283,3 +283,25 @@ func (r *NoteRepository) FetchUsersNoteWithTags(
 	note.Tags = tags
 	return note, nil
 }
+
+// GetNotebooksForNote retrieves all notebooks that contain a specific note
+func (r *NoteRepository) GetNotebooksForNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+) ([]models.Notebook, error) {
+	query := `
+		SELECT n.id, n.user_id, n.name, n.description, n.created_at, n.updated_at 
+		FROM notebooks n 
+		JOIN note_notebooks nn ON n.id = nn.notebook_id 
+		WHERE nn.note_id = $1
+		ORDER BY n.name
+	`
+
+	rows, err := r.pool.Query(ctx, query, noteID)
+	if err != nil {
+		return []models.Notebook{}, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[models.Notebook])
+}
