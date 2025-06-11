@@ -22,8 +22,8 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 		panic("XSRF_SECRET is not set")
 	}
 
-	userRepository := repositories.NewUserRepository(pool)
-	noteRepository := repositories.NewNoteRepository(pool)
+	userRepository := repositories.NewUserRepositoryFromPool(pool)
+	noteRepository := repositories.NewNoteRepositoryFromPool(pool)
 	notebookRepository := repositories.NewNotebookRepository(pool)
 	sectionRepository := repositories.NewSectionRepository(pool)
 	tagRepsoitory := repositories.NewTagRepository(pool)

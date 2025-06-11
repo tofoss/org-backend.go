@@ -6,14 +6,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type NoteRepository struct {
-	pool *pgxpool.Pool
+	pool interface {
+		Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+		Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+		Begin(ctx context.Context) (pgx.Tx, error)
+	}
 }
 
-func NewNoteRepository(pool *pgxpool.Pool) *NoteRepository {
+func NewNoteRepository(pool interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Begin(ctx context.Context) (pgx.Tx, error)
+}) *NoteRepository {
+	return &NoteRepository{pool: pool}
+}
+
+// NewNoteRepositoryFromPool creates a repository from a concrete pgxpool.Pool
+func NewNoteRepositoryFromPool(pool *pgxpool.Pool) *NoteRepository {
 	return &NoteRepository{pool: pool}
 }
 
