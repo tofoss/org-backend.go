@@ -113,16 +113,24 @@ func (r *NoteRepository) FetchUsersNotes(
 		return nil, err
 	}
 
-	// Load tags for each note
-	for i := range notes {
-		tags, tagErr := r.GetTagsForNote(ctx, notes[i].ID)
-		if tagErr != nil {
-			return nil, tagErr
-		}
-		notes[i].Tags = tags
+	// Extract note IDs for bulk tag fetching
+	noteIDs := make([]uuid.UUID, len(notes))
+	for i, note := range notes {
+		noteIDs[i] = note.ID
 	}
 
-	return notes, err
+	// Fetch all tags for all notes in a single query
+	tagsMap, err := r.GetTagsForNotes(ctx, noteIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assign tags to notes using map lookup
+	for i := range notes {
+		notes[i].Tags = tagsMap[notes[i].ID]
+	}
+
+	return notes, nil
 }
 
 // GetTagsForNote retrieves all tags associated with a note
@@ -145,6 +153,57 @@ func (r *NoteRepository) GetTagsForNote(
 	defer rows.Close()
 
 	return pgx.CollectRows(rows, pgx.RowToStructByName[models.Tag])
+}
+
+// GetTagsForNotes retrieves all tags for multiple notes in a single query
+func (r *NoteRepository) GetTagsForNotes(
+	ctx context.Context,
+	noteIDs []uuid.UUID,
+) (map[uuid.UUID][]models.Tag, error) {
+	if len(noteIDs) == 0 {
+		return make(map[uuid.UUID][]models.Tag), nil
+	}
+
+	query := `
+		SELECT nt.note_id, t.id, t.name 
+		FROM tags t 
+		JOIN note_tags nt ON t.id = nt.tag_id 
+		WHERE nt.note_id = ANY($1)
+		ORDER BY nt.note_id, t.name
+	`
+
+	rows, err := r.pool.Query(ctx, query, noteIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Create map to group tags by note ID
+	tagsMap := make(map[uuid.UUID][]models.Tag)
+	
+	// Initialize empty slices for all note IDs
+	for _, noteID := range noteIDs {
+		tagsMap[noteID] = []models.Tag{}
+	}
+
+	// Process query results
+	for rows.Next() {
+		var noteID uuid.UUID
+		var tag models.Tag
+		
+		err := rows.Scan(&noteID, &tag.ID, &tag.Name)
+		if err != nil {
+			return nil, err
+		}
+		
+		tagsMap[noteID] = append(tagsMap[noteID], tag)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tagsMap, nil
 }
 
 // AssignTagsToNote assigns tags to a note, replacing any existing tags
