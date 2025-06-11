@@ -109,5 +109,118 @@ func (r *NoteRepository) FetchUsersNotes(
 
 	notes, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.Note])
 
+	if err != nil {
+		return nil, err
+	}
+
+	// Load tags for each note
+	for i := range notes {
+		tags, tagErr := r.GetTagsForNote(ctx, notes[i].ID)
+		if tagErr != nil {
+			return nil, tagErr
+		}
+		notes[i].Tags = tags
+	}
+
 	return notes, err
+}
+
+// GetTagsForNote retrieves all tags associated with a note
+func (r *NoteRepository) GetTagsForNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+) ([]models.Tag, error) {
+	query := `
+		SELECT t.id, t.name 
+		FROM tags t 
+		JOIN note_tags nt ON t.id = nt.tag_id 
+		WHERE nt.note_id = $1
+		ORDER BY t.name
+	`
+
+	rows, err := r.pool.Query(ctx, query, noteID)
+	if err != nil {
+		return []models.Tag{}, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[models.Tag])
+}
+
+// AssignTagsToNote assigns tags to a note, replacing any existing tags
+func (r *NoteRepository) AssignTagsToNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+	tagIDs []uuid.UUID,
+) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Remove existing tags
+	_, err = tx.Exec(ctx, "DELETE FROM note_tags WHERE note_id = $1", noteID)
+	if err != nil {
+		return err
+	}
+
+	// Add new tags
+	for _, tagID := range tagIDs {
+		_, err = tx.Exec(ctx, "INSERT INTO note_tags (note_id, tag_id) VALUES ($1, $2)", noteID, tagID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// RemoveTagFromNote removes a specific tag from a note
+func (r *NoteRepository) RemoveTagFromNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+	tagID uuid.UUID,
+) error {
+	_, err := r.pool.Exec(ctx, "DELETE FROM note_tags WHERE note_id = $1 AND tag_id = $2", noteID, tagID)
+	return err
+}
+
+// FetchNoteWithTags retrieves a note with its associated tags
+func (r *NoteRepository) FetchNoteWithTags(
+	ctx context.Context,
+	noteID uuid.UUID,
+) (models.Note, error) {
+	note, err := r.FetchNote(ctx, noteID)
+	if err != nil {
+		return models.Note{}, err
+	}
+
+	tags, err := r.GetTagsForNote(ctx, noteID)
+	if err != nil {
+		return models.Note{}, err
+	}
+
+	note.Tags = tags
+	return note, nil
+}
+
+// FetchUsersNoteWithTags retrieves a user's note with its associated tags
+func (r *NoteRepository) FetchUsersNoteWithTags(
+	ctx context.Context,
+	noteID uuid.UUID,
+	userID uuid.UUID,
+) (models.Note, error) {
+	note, err := r.FetchUsersNote(ctx, noteID, userID)
+	if err != nil {
+		return models.Note{}, err
+	}
+
+	tags, err := r.GetTagsForNote(ctx, noteID)
+	if err != nil {
+		return models.Note{}, err
+	}
+
+	note.Tags = tags
+	return note, nil
 }

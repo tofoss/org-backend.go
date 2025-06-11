@@ -15,4 +15,5 @@ type Note struct {
 	UpdatedAt   time.Time  `json:"updatedAt"   db:"updated_at"`
 	PublishedAt *time.Time `json:"publishedAt" db:"published_at"`
 	Published   bool       `json:"published"   db:"published"`
+	Tags        []Tag      `json:"tags"`
 }

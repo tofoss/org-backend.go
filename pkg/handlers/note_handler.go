@@ -44,7 +44,7 @@ func (h *NoteHandler) FetchNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	note, err := h.repo.FetchNote(r.Context(), noteID)
+	note, err := h.repo.FetchNoteWithTags(r.Context(), noteID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			log.Printf("note %s not found %v", noteID, err)
@@ -192,4 +192,147 @@ func (h *NoteHandler) updateNote(
 	}
 
 	return &result, nil
+}
+
+// GetNoteTags retrieves all tags for a specific note
+func (h *NoteHandler) GetNoteTags(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to get note tags, user not logged in: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	noteID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		log.Printf("unable to parse note id: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Verify user has access to this note
+	note, err := h.repo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			log.Printf("note %s not found or user %s doesn't have access", noteID, userID)
+			errors.NotFound(w, "note not found")
+			return
+		}
+		log.Printf("unable to fetch note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	tags, err := h.repo.GetTagsForNote(r.Context(), note.ID)
+	if err != nil {
+		log.Printf("unable to fetch tags for note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(tags)
+}
+
+// AssignNoteTags assigns tags to a note
+func (h *NoteHandler) AssignNoteTags(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to assign note tags, user not logged in: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	noteID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		log.Printf("unable to parse note id: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	var req requests.AssignTags
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("could not decode assign tags request: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Verify user has access to this note
+	_, err = h.repo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			log.Printf("note %s not found or user %s doesn't have access", noteID, userID)
+			errors.NotFound(w, "note not found")
+			return
+		}
+		log.Printf("unable to fetch note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	err = h.repo.AssignTagsToNote(r.Context(), noteID, req.TagIDs)
+	if err != nil {
+		log.Printf("unable to assign tags to note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Return the updated tags
+	tags, err := h.repo.GetTagsForNote(r.Context(), noteID)
+	if err != nil {
+		log.Printf("unable to fetch updated tags for note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(tags)
+}
+
+// RemoveNoteTag removes a specific tag from a note
+func (h *NoteHandler) RemoveNoteTag(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to remove note tag, user not logged in: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	noteID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		log.Printf("unable to parse note id: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	tagID, err := uuid.Parse(chi.URLParam(r, "tagId"))
+	if err != nil {
+		log.Printf("unable to parse tag id: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Verify user has access to this note
+	_, err = h.repo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			log.Printf("note %s not found or user %s doesn't have access", noteID, userID)
+			errors.NotFound(w, "note not found")
+			return
+		}
+		log.Printf("unable to fetch note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	err = h.repo.RemoveTagFromNote(r.Context(), noteID, tagID)
+	if err != nil {
+		log.Printf("unable to remove tag %s from note %s: %v", tagID, noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
