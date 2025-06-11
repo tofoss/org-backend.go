@@ -5,14 +5,28 @@ import (
 	"tofoss/org-go/pkg/models"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UserRepository struct {
-	pool *pgxpool.Pool
+	pool interface {
+		Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+		QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+		Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	}
 }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
+func NewUserRepository(pool interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}) *UserRepository {
+	return &UserRepository{pool: pool}
+}
+
+// NewUserRepositoryFromPool creates a repository from a concrete pgxpool.Pool
+func NewUserRepositoryFromPool(pool *pgxpool.Pool) *UserRepository {
 	return &UserRepository{pool: pool}
 }
 
