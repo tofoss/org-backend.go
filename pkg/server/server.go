@@ -30,7 +30,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 
 	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
-	notebookHandler := handlers.NewNotebookHandler(notebookRepository)
+	notebookHandler := handlers.NewNotebookHandler(notebookRepository, noteRepository)
 	sectionHandler := handlers.NewSectionHandler(sectionRepository)
 	tagHandler := handlers.NewTagHandler(tagRepsoitory)
 

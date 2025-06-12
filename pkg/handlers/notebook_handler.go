@@ -15,11 +15,12 @@ import (
 )
 
 type NotebookHandler struct {
-	repo *repositories.NotebookRepository
+	repo     *repositories.NotebookRepository
+	noteRepo *repositories.NoteRepository
 }
 
-func NewNotebookHandler(repo *repositories.NotebookRepository) NotebookHandler {
-	return NotebookHandler{repo: repo}
+func NewNotebookHandler(repo *repositories.NotebookRepository, noteRepo *repositories.NoteRepository) NotebookHandler {
+	return NotebookHandler{repo: repo, noteRepo: noteRepo}
 }
 
 func (h *NotebookHandler) FetchNotebook(w http.ResponseWriter, r *http.Request) {
@@ -70,11 +71,32 @@ func (h *NotebookHandler) PostNotebook(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	if req.ID == uuid.Nil {
+		// Creating new notebook
 		req.ID = uuid.New()
 		req.CreatedAt = now
+		req.UserID = userID
+	} else {
+		// Updating existing notebook - verify ownership first
+		existing, err := h.repo.FetchNotebook(r.Context(), req.ID)
+		if err != nil {
+			if err == pgx.ErrNoRows {
+				errors.NotFound(w, "notebook not found")
+				return
+			}
+			errors.InternalServerError(w)
+			return
+		}
+
+		if existing.UserID != userID {
+			errors.Unauthenticated(w)
+			return
+		}
+
+		// Preserve original creation data and user ownership
+		req.CreatedAt = existing.CreatedAt
+		req.UserID = existing.UserID
 	}
 	req.UpdatedAt = now
-	req.UserID = userID
 
 	notebook, err := h.repo.Upsert(r.Context(), req)
 	if err != nil {
@@ -200,6 +222,7 @@ func (h *NotebookHandler) AddNoteToNotebook(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Verify user owns the notebook
 	notebook, err := h.repo.FetchNotebook(r.Context(), notebookID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -212,6 +235,17 @@ func (h *NotebookHandler) AddNoteToNotebook(w http.ResponseWriter, r *http.Reque
 
 	if notebook.UserID != userID {
 		errors.Unauthenticated(w)
+		return
+	}
+
+	// Verify user owns the note
+	_, err = h.noteRepo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			errors.NotFound(w, "note not found or access denied")
+			return
+		}
+		errors.InternalServerError(w)
 		return
 	}
 
@@ -243,6 +277,7 @@ func (h *NotebookHandler) RemoveNoteFromNotebook(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Verify user owns the notebook
 	notebook, err := h.repo.FetchNotebook(r.Context(), notebookID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -255,6 +290,17 @@ func (h *NotebookHandler) RemoveNoteFromNotebook(w http.ResponseWriter, r *http.
 
 	if notebook.UserID != userID {
 		errors.Unauthenticated(w)
+		return
+	}
+
+	// Verify user owns the note
+	_, err = h.noteRepo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			errors.NotFound(w, "note not found or access denied")
+			return
+		}
+		errors.InternalServerError(w)
 		return
 	}
 
