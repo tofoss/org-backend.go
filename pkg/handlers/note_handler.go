@@ -139,10 +139,16 @@ func (h *NoteHandler) createNote(
 		publishedAt = &now
 	}
 
+	// Generate title from content if not provided
+	title := req.Title
+	if title == "" {
+		title = utils.GenerateTitleFromContent(req.Content)
+	}
+
 	note := models.Note{
 		ID:          uuid.New(),
 		UserID:      userID,
-		Title:       "",
+		Title:       title,
 		Content:     req.Content,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -179,7 +185,16 @@ func (h *NoteHandler) updateNote(
 		publishedAt = &now
 	}
 
+	// Generate title from content if title is empty (either from request or original)
+	title := req.Title
+	if title == "" && original.Title == "" {
+		title = utils.GenerateTitleFromContent(req.Content)
+	} else if title == "" {
+		title = original.Title // Preserve existing title
+	}
+
 	update := original
+	update.Title = title
 	update.Content = req.Content
 	update.UpdatedAt = now
 	update.PublishedAt = publishedAt
