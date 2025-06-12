@@ -30,7 +30,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 
 	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
-	notebookHandler := handlers.NewNotebookHandler(notebookRepository)
+	notebookHandler := handlers.NewNotebookHandler(notebookRepository, noteRepository)
 	sectionHandler := handlers.NewSectionHandler(sectionRepository)
 	tagHandler := handlers.NewTagHandler(tagRepsoitory)
 
@@ -49,11 +49,17 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 		r.Get("/{id}/tags", noteHandler.GetNoteTags)
 		r.Put("/{id}/tags", noteHandler.AssignNoteTags)
 		r.Delete("/{id}/tags/{tagId}", noteHandler.RemoveNoteTag)
+		r.Get("/{id}/notebooks", noteHandler.GetNoteNotebooks)
 	})
 	router.Route("/notebooks", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Get("/", notebookHandler.FetchUserNotebooks)
 		r.Get("/{id}", notebookHandler.FetchNotebook)
 		r.Post("/", notebookHandler.PostNotebook)
+		r.Delete("/{id}", notebookHandler.DeleteNotebook)
+		r.Get("/{id}/notes", notebookHandler.FetchNotebookNotes)
+		r.Put("/{id}/notes/{noteId}", notebookHandler.AddNoteToNotebook)
+		r.Delete("/{id}/notes/{noteId}", notebookHandler.RemoveNoteFromNotebook)
 	})
 	router.Route("/sections", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)

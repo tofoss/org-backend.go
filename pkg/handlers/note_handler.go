@@ -336,3 +336,44 @@ func (h *NoteHandler) RemoveNoteTag(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// GetNoteNotebooks retrieves all notebooks that contain a specific note
+func (h *NoteHandler) GetNoteNotebooks(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to get note notebooks, user not logged in: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	noteID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		log.Printf("unable to parse note id: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Verify user has access to this note
+	_, err = h.repo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			log.Printf("note %s not found or user %s doesn't have access", noteID, userID)
+			errors.NotFound(w, "note not found")
+			return
+		}
+		log.Printf("unable to fetch note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	notebooks, err := h.repo.GetNotebooksForNote(r.Context(), noteID)
+	if err != nil {
+		log.Printf("unable to fetch notebooks for note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(notebooks)
+}
