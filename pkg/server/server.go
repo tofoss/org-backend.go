@@ -49,6 +49,7 @@ func NewServer(pool *pgxpool.Pool) *chi.Mux {
 		r.Get("/{id}/tags", noteHandler.GetNoteTags)
 		r.Put("/{id}/tags", noteHandler.AssignNoteTags)
 		r.Delete("/{id}/tags/{tagId}", noteHandler.RemoveNoteTag)
+		r.Get("/{id}/notebooks", noteHandler.GetNoteNotebooks)
 	})
 	router.Route("/notebooks", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
