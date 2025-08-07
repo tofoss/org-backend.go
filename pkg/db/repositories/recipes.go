@@ -33,17 +33,17 @@ func (r *RecipeRepository) Create(
 	}
 
 	query := `
-		INSERT INTO recipes (id, note_id, name, summary, servings, prep_time, ingredients, steps, created_at, updated_at) 
+		INSERT INTO recipes (id, name, summary, servings, prep_time, source_url, ingredients, steps, created_at, updated_at) 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
-		RETURNING id, note_id, name, summary, servings, prep_time, ingredients, steps, created_at, updated_at`
+		RETURNING id, name, summary, servings, prep_time, source_url, ingredients, steps, created_at, updated_at`
 
 	rows, err := r.pool.Query(ctx, query,
 		recipe.ID,
-		recipe.NoteID,
 		recipe.Name,
 		recipe.Summary,
 		recipe.Servings,
 		recipe.PrepTime,
+		recipe.SourceURL,
 		ingredientsJSON,
 		stepsJSON,
 		recipe.CreatedAt,
@@ -74,9 +74,9 @@ func (r *RecipeRepository) Update(
 
 	query := `
 		UPDATE recipes 
-		SET name = $2, summary = $3, servings = $4, prep_time = $5, ingredients = $6, steps = $7, updated_at = $8
+		SET name = $2, summary = $3, servings = $4, prep_time = $5, source_url = $6, ingredients = $7, steps = $8, updated_at = $9
 		WHERE id = $1 
-		RETURNING id, note_id, name, summary, servings, prep_time, ingredients, steps, created_at, updated_at`
+		RETURNING id, name, summary, servings, prep_time, source_url, ingredients, steps, created_at, updated_at`
 
 	rows, err := r.pool.Query(ctx, query,
 		recipe.ID,
@@ -84,6 +84,7 @@ func (r *RecipeRepository) Update(
 		recipe.Summary,
 		recipe.Servings,
 		recipe.PrepTime,
+		recipe.SourceURL,
 		ingredientsJSON,
 		stepsJSON,
 		recipe.UpdatedAt,
@@ -101,7 +102,7 @@ func (r *RecipeRepository) FetchByID(
 	ctx context.Context,
 	recipeID uuid.UUID,
 ) (models.Recipe, error) {
-	query := "SELECT id, note_id, name, summary, servings, prep_time, ingredients, steps, created_at, updated_at FROM recipes WHERE id = $1"
+	query := "SELECT id, name, summary, servings, prep_time, source_url, ingredients, steps, created_at, updated_at FROM recipes WHERE id = $1"
 
 	rows, err := r.pool.Query(ctx, query, recipeID)
 	if err != nil {
@@ -115,16 +116,20 @@ func (r *RecipeRepository) FetchByID(
 func (r *RecipeRepository) FetchByNoteID(
 	ctx context.Context,
 	noteID uuid.UUID,
-) (models.Recipe, error) {
-	query := "SELECT id, note_id, name, summary, servings, prep_time, ingredients, steps, created_at, updated_at FROM recipes WHERE note_id = $1"
+) ([]models.Recipe, error) {
+	query := `
+		SELECT r.id, r.name, r.summary, r.servings, r.prep_time, r.source_url, r.ingredients, r.steps, r.created_at, r.updated_at 
+		FROM recipes r 
+		JOIN note_recipes nr ON r.id = nr.recipe_id 
+		WHERE nr.note_id = $1`
 
 	rows, err := r.pool.Query(ctx, query, noteID)
 	if err != nil {
-		return models.Recipe{}, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	return r.scanRecipe(rows)
+	return r.scanRecipes(rows)
 }
 
 func (r *RecipeRepository) FetchByUserID(
@@ -132,9 +137,10 @@ func (r *RecipeRepository) FetchByUserID(
 	userID uuid.UUID,
 ) ([]models.Recipe, error) {
 	query := `
-		SELECT r.id, r.note_id, r.name, r.summary, r.servings, r.prep_time, r.ingredients, r.steps, r.created_at, r.updated_at 
+		SELECT DISTINCT r.id, r.name, r.summary, r.servings, r.prep_time, r.source_url, r.ingredients, r.steps, r.created_at, r.updated_at 
 		FROM recipes r 
-		JOIN notes n ON r.note_id = n.id 
+		JOIN note_recipes nr ON r.id = nr.recipe_id
+		JOIN notes n ON nr.note_id = n.id 
 		WHERE n.user_id = $1 
 		ORDER BY r.created_at DESC`
 
@@ -155,11 +161,23 @@ func (r *RecipeRepository) Delete(
 	return err
 }
 
-func (r *RecipeRepository) DeleteByNoteID(
+// LinkRecipeToNote creates a relationship between a recipe and note
+func (r *RecipeRepository) LinkRecipeToNote(
 	ctx context.Context,
+	recipeID uuid.UUID,
 	noteID uuid.UUID,
 ) error {
-	_, err := r.pool.Exec(ctx, "DELETE FROM recipes WHERE note_id = $1", noteID)
+	_, err := r.pool.Exec(ctx, "INSERT INTO note_recipes (recipe_id, note_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", recipeID, noteID)
+	return err
+}
+
+// UnlinkRecipeFromNote removes the relationship between a recipe and note
+func (r *RecipeRepository) UnlinkRecipeFromNote(
+	ctx context.Context,
+	recipeID uuid.UUID,
+	noteID uuid.UUID,
+) error {
+	_, err := r.pool.Exec(ctx, "DELETE FROM note_recipes WHERE recipe_id = $1 AND note_id = $2", recipeID, noteID)
 	return err
 }
 
@@ -175,11 +193,11 @@ func (r *RecipeRepository) scanRecipe(rows pgx.Rows) (models.Recipe, error) {
 
 	err := rows.Scan(
 		&recipe.ID,
-		&recipe.NoteID,
 		&recipe.Name,
 		&recipe.Summary,
 		&recipe.Servings,
 		&recipe.PrepTime,
+		&recipe.SourceURL,
 		&ingredientsJSON,
 		&stepsJSON,
 		&recipe.CreatedAt,
@@ -212,11 +230,11 @@ func (r *RecipeRepository) scanRecipes(rows pgx.Rows) ([]models.Recipe, error) {
 
 		err := rows.Scan(
 			&recipe.ID,
-			&recipe.NoteID,
 			&recipe.Name,
 			&recipe.Summary,
 			&recipe.Servings,
 			&recipe.PrepTime,
+			&recipe.SourceURL,
 			&ingredientsJSON,
 			&stepsJSON,
 			&recipe.CreatedAt,

@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
 	"tofoss/org-go/pkg/models"
 
 	"github.com/google/uuid"
@@ -304,4 +305,208 @@ func (r *NoteRepository) GetNotebooksForNote(
 	defer rows.Close()
 
 	return pgx.CollectRows(rows, pgx.RowToStructByName[models.Notebook])
+}
+
+// GetRecipesForNote retrieves all recipes associated with a note
+func (r *NoteRepository) GetRecipesForNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+) ([]models.Recipe, error) {
+	query := `
+		SELECT r.id, r.name, r.summary, r.servings, r.prep_time, r.source_url, r.ingredients, r.steps, r.created_at, r.updated_at
+		FROM recipes r 
+		JOIN note_recipes nr ON r.id = nr.recipe_id 
+		WHERE nr.note_id = $1
+		ORDER BY r.name
+	`
+
+	rows, err := r.pool.Query(ctx, query, noteID)
+	if err != nil {
+		return []models.Recipe{}, err
+	}
+	defer rows.Close()
+
+	return r.scanRecipes(rows)
+}
+
+// GetRecipesForNotes retrieves all recipes for multiple notes in a single query
+func (r *NoteRepository) GetRecipesForNotes(
+	ctx context.Context,
+	noteIDs []uuid.UUID,
+) (map[uuid.UUID][]models.Recipe, error) {
+	if len(noteIDs) == 0 {
+		return make(map[uuid.UUID][]models.Recipe), nil
+	}
+
+	query := `
+		SELECT nr.note_id, r.id, r.name, r.summary, r.servings, r.prep_time, r.source_url, r.ingredients, r.steps, r.created_at, r.updated_at
+		FROM recipes r 
+		JOIN note_recipes nr ON r.id = nr.recipe_id 
+		WHERE nr.note_id = ANY($1)
+		ORDER BY nr.note_id, r.name
+	`
+
+	rows, err := r.pool.Query(ctx, query, noteIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Create map to group recipes by note ID
+	recipesMap := make(map[uuid.UUID][]models.Recipe)
+	
+	// Initialize empty slices for all note IDs
+	for _, noteID := range noteIDs {
+		recipesMap[noteID] = []models.Recipe{}
+	}
+
+	// Process query results
+	for rows.Next() {
+		var noteID uuid.UUID
+		var recipe models.Recipe
+		var ingredientsJSON []byte
+		var stepsJSON []byte
+		
+		err := rows.Scan(
+			&noteID,
+			&recipe.ID,
+			&recipe.Name,
+			&recipe.Summary,
+			&recipe.Servings,
+			&recipe.PrepTime,
+			&recipe.SourceURL,
+			&ingredientsJSON,
+			&stepsJSON,
+			&recipe.CreatedAt,
+			&recipe.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Unmarshal JSON fields
+		if err := r.unmarshalRecipeJSON(&recipe, ingredientsJSON, stepsJSON); err != nil {
+			return nil, err
+		}
+		
+		recipesMap[noteID] = append(recipesMap[noteID], recipe)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return recipesMap, nil
+}
+
+// AssignRecipesToNote assigns recipes to a note, replacing any existing recipe relationships
+func (r *NoteRepository) AssignRecipesToNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+	recipeIDs []uuid.UUID,
+) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Remove existing recipe relationships
+	_, err = tx.Exec(ctx, "DELETE FROM note_recipes WHERE note_id = $1", noteID)
+	if err != nil {
+		return err
+	}
+
+	// Add new recipe relationships
+	for _, recipeID := range recipeIDs {
+		_, err = tx.Exec(ctx, "INSERT INTO note_recipes (note_id, recipe_id) VALUES ($1, $2)", noteID, recipeID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// RemoveRecipeFromNote removes a specific recipe from a note
+func (r *NoteRepository) RemoveRecipeFromNote(
+	ctx context.Context,
+	noteID uuid.UUID,
+	recipeID uuid.UUID,
+) error {
+	_, err := r.pool.Exec(ctx, "DELETE FROM note_recipes WHERE note_id = $1 AND recipe_id = $2", noteID, recipeID)
+	return err
+}
+
+// FetchNoteWithRecipes retrieves a note with its associated recipes
+func (r *NoteRepository) FetchNoteWithRecipes(
+	ctx context.Context,
+	noteID uuid.UUID,
+) (models.Note, error) {
+	note, err := r.FetchNote(ctx, noteID)
+	if err != nil {
+		return models.Note{}, err
+	}
+
+	recipes, err := r.GetRecipesForNote(ctx, noteID)
+	if err != nil {
+		return models.Note{}, err
+	}
+
+	// Add recipes to note (we'll need to add a Recipes field to the Note model)
+	// For now, this method exists for future use
+	_ = recipes
+
+	return note, nil
+}
+
+// Helper methods for recipe JSON handling
+func (r *NoteRepository) scanRecipes(rows pgx.Rows) ([]models.Recipe, error) {
+	var recipes []models.Recipe
+
+	for rows.Next() {
+		var recipe models.Recipe
+		var ingredientsJSON []byte
+		var stepsJSON []byte
+
+		err := rows.Scan(
+			&recipe.ID,
+			&recipe.Name,
+			&recipe.Summary,
+			&recipe.Servings,
+			&recipe.PrepTime,
+			&recipe.SourceURL,
+			&ingredientsJSON,
+			&stepsJSON,
+			&recipe.CreatedAt,
+			&recipe.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := r.unmarshalRecipeJSON(&recipe, ingredientsJSON, stepsJSON); err != nil {
+			return nil, err
+		}
+
+		recipes = append(recipes, recipe)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return recipes, nil
+}
+
+func (r *NoteRepository) unmarshalRecipeJSON(recipe *models.Recipe, ingredientsJSON, stepsJSON []byte) error {
+	if err := json.Unmarshal(ingredientsJSON, &recipe.Ingredients); err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(stepsJSON, &recipe.Steps); err != nil {
+		return err
+	}
+
+	return nil
 }
