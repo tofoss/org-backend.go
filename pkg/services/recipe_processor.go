@@ -19,13 +19,13 @@ import (
 )
 
 type RecipeProcessor struct {
-	recipeRepo    *repositories.RecipeRepository
-	jobRepo       *repositories.RecipeJobRepository
-	noteRepo      *repositories.NoteRepository
-	cacheRepo     *repositories.RecipeURLCacheRepository
-	extractor     *parser.MainContentExtractor
-	aiClient      genai.DeepseekClient
-	systemPrompt  string
+	recipeRepo   *repositories.RecipeRepository
+	jobRepo      *repositories.RecipeJobRepository
+	noteRepo     *repositories.NoteRepository
+	cacheRepo    *repositories.RecipeURLCacheRepository
+	extractor    *parser.MainContentExtractor
+	aiClient     genai.DeepseekClient
+	systemPrompt string
 }
 
 func NewRecipeProcessor(
@@ -140,9 +140,12 @@ func (p *RecipeProcessor) extractContent(ctx context.Context, url string) (strin
 	}
 }
 
-func (p *RecipeProcessor) processWithAI(ctx context.Context, content string) (models.Recipe, error) {
+func (p *RecipeProcessor) processWithAI(
+	ctx context.Context,
+	content string,
+) (models.Recipe, error) {
 	// Set timeout for AI processing
-	aiCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	aiCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
 	defer cancel()
 
 	response, err := p.aiClient.Chat(p.systemPrompt, content, true, aiCtx)
@@ -159,7 +162,11 @@ func (p *RecipeProcessor) processWithAI(ctx context.Context, content string) (mo
 	return recipe, nil
 }
 
-func (p *RecipeProcessor) createNoteFromRecipe(ctx context.Context, job models.RecipeJob, recipe models.Recipe) error {
+func (p *RecipeProcessor) createNoteFromRecipe(
+	ctx context.Context,
+	job models.RecipeJob,
+	recipe models.Recipe,
+) error {
 	// Generate markdown content
 	markdownContent := utils.RecipeToMarkdown(recipe)
 
@@ -192,12 +199,16 @@ func (p *RecipeProcessor) createNoteFromRecipe(ctx context.Context, job models.R
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
 
-	log.Printf("Successfully processed job %s: created recipe %s and note %s", 
+	log.Printf("Successfully processed job %s: created recipe %s and note %s",
 		job.ID, recipe.ID, createdNote.ID)
 	return nil
 }
 
-func (p *RecipeProcessor) createNoteFromCachedRecipe(ctx context.Context, job models.RecipeJob, recipeID uuid.UUID) error {
+func (p *RecipeProcessor) createNoteFromCachedRecipe(
+	ctx context.Context,
+	job models.RecipeJob,
+	recipeID uuid.UUID,
+) error {
 	// Fetch the cached recipe
 	recipe, err := p.recipeRepo.FetchByID(ctx, recipeID)
 	if err != nil {
@@ -227,3 +238,4 @@ func (p *RecipeProcessor) hashURL(url string) string {
 	hash := sha256.Sum256([]byte(url))
 	return fmt.Sprintf("%x", hash)
 }
+
