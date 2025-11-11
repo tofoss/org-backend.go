@@ -76,6 +76,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	router.Route("/notes", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
 		r.Get("/", noteHandler.FetchUsersNotes)
+		r.Get("/search", noteHandler.SearchNotes)
 		r.Get("/{id}", noteHandler.FetchNote)
 		r.Post("/", noteHandler.PostNote)
 		r.Get("/{id}/tags", noteHandler.GetNoteTags)
