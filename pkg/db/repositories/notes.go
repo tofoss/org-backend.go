@@ -24,9 +24,9 @@ func (r *NoteRepository) Upsert(
 ) (models.Note, error) {
 	query := `
 		INSERT INTO notes (id, user_id, title, content, created_at, updated_at, published_at, published, tsv)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-			setweight(to_tsvector('english', coalesce($3, '')), 'A') ||
-			setweight(to_tsvector('english', coalesce($4, '')), 'B') ||
+		VALUES ($1, $2, $3::varchar, $4, $5, $6, $7, $8,
+			setweight(to_tsvector('english', coalesce($3::text, '')), 'A') ||
+			setweight(to_tsvector('english', coalesce($4::text, '')), 'B') ||
 			setweight(to_tsvector('english', coalesce((
 				SELECT string_agg(t.name, ' ')
 				FROM tags t
