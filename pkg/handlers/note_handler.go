@@ -21,11 +21,11 @@ import (
 )
 
 type NoteHandler struct {
-	repo *repositories.NoteRepository
+	repo repositories.NoteRepositoryInterface
 }
 
 func NewNoteHandler(
-	repo *repositories.NoteRepository,
+	repo repositories.NoteRepositoryInterface,
 ) NoteHandler {
 	return NoteHandler{repo}
 }
