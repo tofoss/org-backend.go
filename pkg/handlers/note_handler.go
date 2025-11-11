@@ -104,15 +104,8 @@ func (h *NoteHandler) SearchNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get query parameters
+	// Get query parameters (empty query returns all notes)
 	query := r.URL.Query().Get("q")
-	if query == "" {
-		// If no query provided, return empty results
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode([]models.Note{})
-		return
-	}
 
 	// Parse pagination parameters with defaults
 	limit := 50

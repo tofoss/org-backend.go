@@ -109,11 +109,25 @@ func TestSearchNotes(t *testing.T) {
 		checkMockCalls func(t *testing.T, query string, limit int, offset int)
 	}{
 		{
-			name:           "Empty query returns empty results",
-			queryParams:    "",
-			mockResponse:   nil, // Should not call mock
+			name:        "Empty query returns all notes",
+			queryParams: "",
+			mockResponse: []models.Note{
+				{ID: uuid.New(), Title: "Note 1", Content: "Content 1"},
+				{ID: uuid.New(), Title: "Note 2", Content: "Content 2"},
+			},
 			expectedStatus: http.StatusOK,
-			expectedCount:  0,
+			expectedCount:  2,
+			checkMockCalls: func(t *testing.T, query string, limit int, offset int) {
+				if query != "" {
+					t.Errorf("Expected empty query, got '%s'", query)
+				}
+				if limit != 50 {
+					t.Errorf("Expected default limit 50, got %d", limit)
+				}
+				if offset != 0 {
+					t.Errorf("Expected default offset 0, got %d", offset)
+				}
+			},
 		},
 		{
 			name:        "Valid query with default pagination",
@@ -277,14 +291,9 @@ func TestSearchNotes(t *testing.T) {
 					tt.validateResult(t, notes)
 				}
 
-				// Check mock was called correctly (only if query was provided)
-				if tt.queryParams != "" && mockCalled && tt.checkMockCalls != nil {
+				// Check mock was called correctly
+				if mockCalled && tt.checkMockCalls != nil {
 					tt.checkMockCalls(t, capturedQuery, capturedLimit, capturedOffset)
-				}
-
-				// If no query, mock should not be called
-				if tt.queryParams == "" && mockCalled {
-					t.Error("Mock should not be called for empty query")
 				}
 			}
 		})
