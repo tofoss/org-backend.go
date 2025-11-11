@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/genai"
@@ -153,8 +154,11 @@ func (p *RecipeProcessor) processWithAI(
 		return models.Recipe{}, fmt.Errorf("AI chat failed: %w", err)
 	}
 
+	// Clean up response by removing markdown code block markers
+	cleanedResponse := p.cleanAIResponse(response)
+
 	var recipe models.Recipe
-	err = json.Unmarshal([]byte(response), &recipe)
+	err = json.Unmarshal([]byte(cleanedResponse), &recipe)
 	if err != nil {
 		return models.Recipe{}, fmt.Errorf("failed to parse AI response: %w", err)
 	}
@@ -231,7 +235,7 @@ func (p *RecipeProcessor) failJob(ctx context.Context, jobID uuid.UUID, errorMes
 	if err != nil {
 		log.Printf("Failed to update job status to failed: %v", err)
 	}
-	return fmt.Errorf(errorMessage)
+	return fmt.Errorf("%s", errorMessage)
 }
 
 func (p *RecipeProcessor) hashURL(url string) string {
@@ -239,3 +243,20 @@ func (p *RecipeProcessor) hashURL(url string) string {
 	return fmt.Sprintf("%x", hash)
 }
 
+// cleanAIResponse removes markdown code block markers from AI response
+func (p *RecipeProcessor) cleanAIResponse(response string) string {
+	// Remove leading and trailing whitespace
+	cleaned := strings.TrimSpace(response)
+
+	if after, ok := strings.CutPrefix(cleaned, "```json"); ok {
+		cleaned = after
+	} else {
+		cleaned = strings.TrimPrefix(cleaned, "```")
+	}
+
+	// Remove trailing ```
+	cleaned = strings.TrimSuffix(cleaned, "```")
+
+	// Trim any remaining whitespace
+	return strings.TrimSpace(cleaned)
+}
