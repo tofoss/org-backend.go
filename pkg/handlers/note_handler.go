@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
@@ -87,6 +88,53 @@ func (h *NoteHandler) FetchUsersNotes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(notes)
+}
+
+// SearchNotes searches notes using full-text search
+func (h *NoteHandler) SearchNotes(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("unable to search notes, user not logged in: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Get query parameters
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		// If no query provided, return empty results
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]models.Note{})
+		return
+	}
+
+	// Parse pagination parameters with defaults
+	limit := 50
+	offset := 0
+
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 && parsedLimit <= 100 {
+			limit = parsedLimit
+		}
+	}
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
+			offset = parsedOffset
+		}
+	}
+
+	notes, err := h.repo.SearchNotes(r.Context(), userID, query, limit, offset)
+	if err != nil {
+		log.Printf("unable to search notes: %v", err)
+		errors.InternalServerError(w)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

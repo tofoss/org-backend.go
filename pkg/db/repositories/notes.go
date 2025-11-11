@@ -23,15 +23,25 @@ func (r *NoteRepository) Upsert(
 	note models.Note,
 ) (models.Note, error) {
 	query := `
-		INSERT INTO notes (id, user_id, title, content, created_at, updated_at, published_at, published) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
-        ON CONFLICT (id) DO UPDATE SET 
-			user_id = EXCLUDED.user_id, 
-			title = EXCLUDED.title, 
-			content = EXCLUDED.content, 
-			updated_at = EXCLUDED.updated_at, 
+		INSERT INTO notes (id, user_id, title, content, created_at, updated_at, published_at, published, tsv)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+			setweight(to_tsvector('english', coalesce($3, '')), 'A') ||
+			setweight(to_tsvector('english', coalesce($4, '')), 'B') ||
+			setweight(to_tsvector('english', coalesce((
+				SELECT string_agg(t.name, ' ')
+				FROM tags t
+				JOIN note_tags nt ON t.id = nt.tag_id
+				WHERE nt.note_id = $1
+			), '')), 'A')
+		)
+        ON CONFLICT (id) DO UPDATE SET
+			user_id = EXCLUDED.user_id,
+			title = EXCLUDED.title,
+			content = EXCLUDED.content,
+			updated_at = EXCLUDED.updated_at,
 			published_at = EXCLUDED.published_at,
-			published = EXCLUDED.published 
+			published = EXCLUDED.published,
+			tsv = EXCLUDED.tsv
         RETURNING id, user_id, title, content, created_at, updated_at, published_at, published`
 
 	rows, err := r.pool.Query(ctx, query,
@@ -233,6 +243,26 @@ func (r *NoteRepository) AssignTagsToNote(
 		}
 	}
 
+	// Recalculate tsv to include new tags
+	updateTSVQuery := `
+		UPDATE notes
+		SET tsv = (
+			setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+			setweight(to_tsvector('english', coalesce(content, '')), 'B') ||
+			setweight(to_tsvector('english', coalesce((
+				SELECT string_agg(t.name, ' ')
+				FROM tags t
+				JOIN note_tags nt ON t.id = nt.tag_id
+				WHERE nt.note_id = notes.id
+			), '')), 'A')
+		)
+		WHERE id = $1
+	`
+	_, err = tx.Exec(ctx, updateTSVQuery, noteID)
+	if err != nil {
+		return err
+	}
+
 	return tx.Commit(ctx)
 }
 
@@ -242,8 +272,100 @@ func (r *NoteRepository) RemoveTagFromNote(
 	noteID uuid.UUID,
 	tagID uuid.UUID,
 ) error {
-	_, err := r.pool.Exec(ctx, "DELETE FROM note_tags WHERE note_id = $1 AND tag_id = $2", noteID, tagID)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// Remove tag
+	_, err = tx.Exec(ctx, "DELETE FROM note_tags WHERE note_id = $1 AND tag_id = $2", noteID, tagID)
+	if err != nil {
+		return err
+	}
+
+	// Recalculate tsv to reflect removed tag
+	updateTSVQuery := `
+		UPDATE notes
+		SET tsv = (
+			setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
+			setweight(to_tsvector('english', coalesce(content, '')), 'B') ||
+			setweight(to_tsvector('english', coalesce((
+				SELECT string_agg(t.name, ' ')
+				FROM tags t
+				JOIN note_tags nt ON t.id = nt.tag_id
+				WHERE nt.note_id = notes.id
+			), '')), 'A')
+		)
+		WHERE id = $1
+	`
+	_, err = tx.Exec(ctx, updateTSVQuery, noteID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// SearchNotes searches notes by text query using full-text search
+func (r *NoteRepository) SearchNotes(
+	ctx context.Context,
+	userID uuid.UUID,
+	query string,
+	limit int,
+	offset int,
+) ([]models.Note, error) {
+	sqlQuery := `
+		SELECT id, user_id, title, content, created_at, updated_at, published_at, published,
+		       ts_rank(tsv, plainto_tsquery('english', $2)) as rank
+		FROM notes
+		WHERE user_id = $1
+		  AND ($2 = '' OR tsv @@ plainto_tsquery('english', $2))
+		ORDER BY rank DESC, updated_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := r.pool.Query(ctx, sqlQuery, userID, query, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notes []models.Note
+	for rows.Next() {
+		var note models.Note
+		var rank float32
+		err := rows.Scan(
+			&note.ID, &note.UserID, &note.Title, &note.Content,
+			&note.CreatedAt, &note.UpdatedAt, &note.PublishedAt, &note.Published,
+			&rank,
+		)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Fetch tags for all notes
+	if len(notes) > 0 {
+		noteIDs := make([]uuid.UUID, len(notes))
+		for i, note := range notes {
+			noteIDs[i] = note.ID
+		}
+		tagsMap, err := r.GetTagsForNotes(ctx, noteIDs)
+		if err != nil {
+			return nil, err
+		}
+		for i := range notes {
+			notes[i].Tags = tagsMap[notes[i].ID]
+		}
+	}
+
+	return notes, nil
 }
 
 // FetchNoteWithTags retrieves a note with its associated tags
