@@ -30,3 +30,33 @@ type NoteRepositoryInterface interface {
 
 // Ensure NoteRepository implements the interface
 var _ NoteRepositoryInterface = (*NoteRepository)(nil)
+
+// SectionRepositoryInterface defines the contract for section data access
+type SectionRepositoryInterface interface {
+	Upsert(ctx context.Context, section models.Section) (models.Section, error)
+	FetchSection(ctx context.Context, id uuid.UUID) (models.Section, error)
+	FetchNotebookSections(ctx context.Context, notebookID uuid.UUID) ([]models.Section, error)
+	DeleteSection(ctx context.Context, id uuid.UUID) error
+	UpdateSectionPosition(ctx context.Context, id uuid.UUID, newPosition int) error
+	UpdateSectionName(ctx context.Context, id uuid.UUID, name string) error
+	AssignNoteToSection(ctx context.Context, noteID, notebookID uuid.UUID, sectionID *uuid.UUID) error
+	FetchSectionNotes(ctx context.Context, sectionID uuid.UUID) ([]models.Note, error)
+	FetchUnsectionedNotes(ctx context.Context, notebookID uuid.UUID) ([]models.Note, error)
+}
+
+// Ensure SectionRepository implements the interface
+var _ SectionRepositoryInterface = (*SectionRepository)(nil)
+
+// NotebookRepositoryInterface defines the contract for notebook data access
+type NotebookRepositoryInterface interface {
+	Upsert(ctx context.Context, notebook models.Notebook) (models.Notebook, error)
+	FetchNotebook(ctx context.Context, id uuid.UUID) (models.Notebook, error)
+	FetchUserNotebooks(ctx context.Context, userID uuid.UUID) ([]models.Notebook, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	AddNoteToNotebook(ctx context.Context, noteID, notebookID uuid.UUID) error
+	RemoveNoteFromNotebook(ctx context.Context, noteID, notebookID uuid.UUID) error
+	FetchNotebookNotes(ctx context.Context, notebookID uuid.UUID) ([]models.Note, error)
+}
+
+// Ensure NotebookRepository implements the interface
+var _ NotebookRepositoryInterface = (*NotebookRepository)(nil)
