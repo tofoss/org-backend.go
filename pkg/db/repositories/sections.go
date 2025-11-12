@@ -21,6 +21,11 @@ func (r *SectionRepository) Upsert(
 	ctx context.Context,
 	section models.Section,
 ) (models.Section, error) {
+	// Generate new ID if not provided (creating new section)
+	if section.ID == uuid.Nil {
+		section.ID = uuid.New()
+	}
+
 	query := `
 		INSERT INTO sections (id, notebook_id, name, position, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
