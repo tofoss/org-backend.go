@@ -408,14 +408,16 @@ func (r *NoteRepository) FetchUsersNoteWithTags(
 }
 
 // GetNotebooksForNote retrieves all notebooks that contain a specific note
+// Includes the section_id from the note_notebooks join table
 func (r *NoteRepository) GetNotebooksForNote(
 	ctx context.Context,
 	noteID uuid.UUID,
 ) ([]models.Notebook, error) {
 	query := `
-		SELECT n.id, n.user_id, n.name, n.description, n.created_at, n.updated_at 
-		FROM notebooks n 
-		JOIN note_notebooks nn ON n.id = nn.notebook_id 
+		SELECT n.id, n.user_id, n.name, n.description, n.created_at, n.updated_at,
+		       nn.section_id AS section_id
+		FROM notebooks n
+		JOIN note_notebooks nn ON n.id = nn.notebook_id
 		WHERE nn.note_id = $1
 		ORDER BY n.name
 	`

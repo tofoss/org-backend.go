@@ -29,7 +29,8 @@ func (r *NotebookRepository) Upsert(
 			name = EXCLUDED.name,
 			description = EXCLUDED.description,
 			updated_at = EXCLUDED.updated_at
-		RETURNING id, user_id, name, description, created_at, updated_at
+		RETURNING id, user_id, name, description, created_at, updated_at,
+		          NULL AS section_id
 	`
 
 	rows, err := r.pool.Query(ctx, query,
@@ -53,7 +54,8 @@ func (r *NotebookRepository) FetchNotebook(
 	id uuid.UUID,
 ) (models.Notebook, error) {
 	query := `
-		SELECT id, user_id, name, description, created_at, updated_at
+		SELECT id, user_id, name, description, created_at, updated_at,
+		       NULL AS section_id
 		FROM notebooks WHERE id = $1
 	`
 
@@ -71,7 +73,8 @@ func (r *NotebookRepository) FetchUserNotebooks(
 	userID uuid.UUID,
 ) ([]models.Notebook, error) {
 	query := `
-		SELECT id, user_id, name, description, created_at, updated_at
+		SELECT id, user_id, name, description, created_at, updated_at,
+		       NULL AS section_id
 		FROM notebooks WHERE user_id = $1
 		ORDER BY updated_at DESC
 	`
