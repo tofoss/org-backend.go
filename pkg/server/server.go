@@ -59,7 +59,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
 	notebookHandler := handlers.NewNotebookHandler(notebookRepository, noteRepository)
-	sectionHandler := handlers.NewSectionHandler(sectionRepository)
+	sectionHandler := handlers.NewSectionHandler(sectionRepository, notebookRepository)
 	tagHandler := handlers.NewTagHandler(tagRepository)
 	recipeHandler := handlers.NewRecipeHandler(recipeRepository, recipeJobRepository, noteRepository)
 
@@ -83,6 +83,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Put("/{id}/tags", noteHandler.AssignNoteTags)
 		r.Delete("/{id}/tags/{tagId}", noteHandler.RemoveNoteTag)
 		r.Get("/{id}/notebooks", noteHandler.GetNoteNotebooks)
+		r.Put("/{noteId}/notebooks/{notebookId}/section", sectionHandler.AssignNoteToSection)
 	})
 	
 	router.Route("/notebooks", func(r chi.Router) {
@@ -94,14 +95,20 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Get("/{id}/notes", notebookHandler.FetchNotebookNotes)
 		r.Put("/{id}/notes/{noteId}", notebookHandler.AddNoteToNotebook)
 		r.Delete("/{id}/notes/{noteId}", notebookHandler.RemoveNoteFromNotebook)
+		r.Get("/{id}/sections", sectionHandler.ListNotebookSections)
+		r.Get("/{id}/unsectioned", sectionHandler.GetUnsectionedNotes)
 	})
-	
+
 	router.Route("/sections", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
 		r.Get("/{id}", sectionHandler.FetchSection)
 		r.Post("/", sectionHandler.PostSection)
+		r.Delete("/{id}", sectionHandler.DeleteSection)
+		r.Put("/{id}/position", sectionHandler.UpdateSectionPosition)
+		r.Patch("/{id}", sectionHandler.UpdateSectionName)
+		r.Get("/{id}/notes", sectionHandler.GetSectionNotes)
 	})
-	
+
 	router.Route("/tags", func(r chi.Router) {
 		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
 		r.Get("/{id}", tagHandler.FetchTag)
