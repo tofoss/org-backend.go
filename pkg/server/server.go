@@ -74,7 +74,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	})
 	
 	router.Route("/notes", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
 		r.Get("/", noteHandler.FetchUsersNotes)
 		r.Get("/search", noteHandler.SearchNotes)
 		r.Get("/{id}", noteHandler.FetchNote)
@@ -88,7 +88,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	})
 	
 	router.Route("/notebooks", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
 		r.Get("/", notebookHandler.FetchUserNotebooks)
 		r.Get("/{id}", notebookHandler.FetchNotebook)
 		r.Post("/", notebookHandler.PostNotebook)
@@ -101,7 +101,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	})
 
 	router.Route("/sections", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
 		r.Get("/{id}", sectionHandler.FetchSection)
 		r.Post("/", sectionHandler.PostSection)
 		r.Delete("/{id}", sectionHandler.DeleteSection)
@@ -111,14 +111,14 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	})
 
 	router.Route("/tags", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
 		r.Get("/{id}", tagHandler.FetchTag)
 		r.Post("/", tagHandler.PostTag)
 		r.Get("/", tagHandler.FetchAll)
 	})
 
 	router.Route("/recipes", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
 		r.Post("/", recipeHandler.CreateRecipeFromURL)
 		r.Get("/jobs/{id}", recipeHandler.GetRecipeJobStatus)
 	})

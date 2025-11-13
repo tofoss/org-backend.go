@@ -12,6 +12,7 @@ func XSRFProtection(next http.Handler) http.Handler {
 		header := r.Header.Get("X-XSRF-TOKEN")
 		if header == "" {
 			http.Error(w, "XSRF token is missing", http.StatusForbidden)
+			return
 		}
 
 		cookie, err := r.Cookie("XSRF-TOKEN")
