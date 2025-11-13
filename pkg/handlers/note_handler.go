@@ -226,12 +226,10 @@ func (h *NoteHandler) updateNote(
 		publishedAt = &now
 	}
 
-	// Generate title from content if title is empty (either from request or original)
+	// Generate title from content if not explicitly provided in request
 	title := req.Title
-	if title == "" && original.Title == "" {
+	if title == "" {
 		title = utils.GenerateTitleFromContent(req.Content)
-	} else if title == "" {
-		title = original.Title // Preserve existing title
 	}
 
 	update := original
