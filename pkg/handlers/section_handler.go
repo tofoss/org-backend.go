@@ -317,6 +317,55 @@ func (h *SectionHandler) UpdateSectionName(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// UpdateNotePosition updates the position of a note within its section for reordering
+func (h *SectionHandler) UpdateNotePosition(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("user context error: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	noteID, err := uuid.Parse(chi.URLParam(r, "noteId"))
+	if err != nil {
+		log.Printf("invalid note ID: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	notebookID, err := uuid.Parse(chi.URLParam(r, "notebookId"))
+	if err != nil {
+		log.Printf("invalid notebook ID: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Parse new position from request body
+	var req struct {
+		Position int `json:"position"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("failed to decode request body: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Verify user owns notebook
+	if err := h.verifyNotebookOwnership(r.Context(), userID, notebookID); err != nil {
+		log.Printf("notebook ownership verification failed: %v", err)
+		errors.Unauthenticated(w)
+		return
+	}
+
+	if err := h.repo.UpdateNotePosition(r.Context(), noteID, notebookID, req.Position); err != nil {
+		log.Printf("failed to update note position: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // AssignNoteToSection assigns a note to a section within a notebook
 func (h *SectionHandler) AssignNoteToSection(w http.ResponseWriter, r *http.Request) {
 	userID, _, err := utils.UserContext(r)

@@ -40,6 +40,7 @@ type SectionRepositoryInterface interface {
 	UpdateSectionPosition(ctx context.Context, id uuid.UUID, newPosition int) error
 	UpdateSectionName(ctx context.Context, id uuid.UUID, name string) error
 	AssignNoteToSection(ctx context.Context, noteID, notebookID uuid.UUID, sectionID *uuid.UUID) error
+	UpdateNotePosition(ctx context.Context, noteID, notebookID uuid.UUID, newPosition int) error
 	FetchSectionNotes(ctx context.Context, sectionID uuid.UUID) ([]models.Note, error)
 	FetchUnsectionedNotes(ctx context.Context, notebookID uuid.UUID) ([]models.Note, error)
 }

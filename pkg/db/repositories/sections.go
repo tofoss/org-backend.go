@@ -195,7 +195,7 @@ func (r *SectionRepository) FetchSectionNotes(
 		FROM notes n
 		JOIN note_notebooks nn ON n.id = nn.note_id
 		WHERE nn.section_id = $1
-		ORDER BY n.updated_at DESC
+		ORDER BY nn.position ASC
 	`
 
 	rows, err := r.pool.Query(ctx, query, sectionID)
@@ -217,7 +217,7 @@ func (r *SectionRepository) FetchUnsectionedNotes(
 		FROM notes n
 		JOIN note_notebooks nn ON n.id = nn.note_id
 		WHERE nn.notebook_id = $1 AND nn.section_id IS NULL
-		ORDER BY n.updated_at DESC
+		ORDER BY nn.position ASC
 	`
 
 	rows, err := r.pool.Query(ctx, query, notebookID)
@@ -227,4 +227,65 @@ func (r *SectionRepository) FetchUnsectionedNotes(
 	defer rows.Close()
 
 	return pgx.CollectRows(rows, pgx.RowToStructByName[models.Note])
+}
+
+// UpdateNotePosition updates the position of a note within its section for reordering
+func (r *SectionRepository) UpdateNotePosition(
+	ctx context.Context,
+	noteID uuid.UUID,
+	notebookID uuid.UUID,
+	newPosition int,
+) error {
+	// Get current note position and section
+	var oldPosition int
+	var sectionID *uuid.UUID
+	query := `SELECT position, section_id FROM note_notebooks WHERE note_id = $1 AND notebook_id = $2`
+	err := r.pool.QueryRow(ctx, query, noteID, notebookID).Scan(&oldPosition, &sectionID)
+	if err != nil {
+		return err
+	}
+
+	// Begin transaction
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// If moving note down (increasing position), shift notes between old and new position up
+	if newPosition > oldPosition {
+		shiftQuery := `
+			UPDATE note_notebooks
+			SET position = position - 1
+			WHERE notebook_id = $1
+			  AND (section_id = $2 OR (section_id IS NULL AND $2 IS NULL))
+			  AND position > $3 AND position <= $4
+		`
+		_, err = tx.Exec(ctx, shiftQuery, notebookID, sectionID, oldPosition, newPosition)
+		if err != nil {
+			return err
+		}
+	} else if newPosition < oldPosition {
+		// If moving note up (decreasing position), shift notes between new and old position down
+		shiftQuery := `
+			UPDATE note_notebooks
+			SET position = position + 1
+			WHERE notebook_id = $1
+			  AND (section_id = $2 OR (section_id IS NULL AND $2 IS NULL))
+			  AND position >= $3 AND position < $4
+		`
+		_, err = tx.Exec(ctx, shiftQuery, notebookID, sectionID, newPosition, oldPosition)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update target note position
+	updateQuery := `UPDATE note_notebooks SET position = $1 WHERE note_id = $2 AND notebook_id = $3`
+	_, err = tx.Exec(ctx, updateQuery, newPosition, noteID, notebookID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

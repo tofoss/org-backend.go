@@ -84,6 +84,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Delete("/{id}/tags/{tagId}", noteHandler.RemoveNoteTag)
 		r.Get("/{id}/notebooks", noteHandler.GetNoteNotebooks)
 		r.Put("/{noteId}/notebooks/{notebookId}/section", sectionHandler.AssignNoteToSection)
+		r.Put("/{noteId}/notebooks/{notebookId}/position", sectionHandler.UpdateNotePosition)
 	})
 	
 	router.Route("/notebooks", func(r chi.Router) {
