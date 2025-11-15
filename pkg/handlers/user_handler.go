@@ -182,7 +182,7 @@ func verifyPassord(hash, password string) bool {
 func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	// Clear JWT cookie
 	jwtCookie := http.Cookie{
-		Name:     "jwt",
+		Name:     "JWT-Cookie",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
