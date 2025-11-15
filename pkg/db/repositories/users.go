@@ -72,3 +72,24 @@ func (r *UserRepository) FetchUser(ctx context.Context, username string) (*model
 
 	return &user, nil
 }
+
+func (r *UserRepository) FetchUserByID(ctx context.Context, userID string) (*models.User, error) {
+	query := "SELECT id, username FROM users WHERE id = $1"
+
+	rows, err := r.pool.Query(ctx, query, userID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[models.User])
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &user, nil
+}

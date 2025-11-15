@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/requests"
 	"tofoss/org-go/pkg/models"
@@ -21,15 +22,20 @@ import (
 
 // mockSectionRepository is a mock implementation of SectionRepository for testing
 type mockSectionRepository struct {
-	fetchSectionFunc         func(ctx context.Context, id uuid.UUID) (models.Section, error)
+	fetchSectionFunc          func(ctx context.Context, id uuid.UUID) (models.Section, error)
 	fetchNotebookSectionsFunc func(ctx context.Context, notebookID uuid.UUID) ([]models.Section, error)
-	upsertFunc               func(ctx context.Context, section models.Section) (models.Section, error)
-	deleteSectionFunc        func(ctx context.Context, id uuid.UUID) error
+	upsertFunc                func(ctx context.Context, section models.Section) (models.Section, error)
+	deleteSectionFunc         func(ctx context.Context, id uuid.UUID) error
 	updateSectionPositionFunc func(ctx context.Context, id uuid.UUID, newPosition int) error
-	updateSectionNameFunc    func(ctx context.Context, id uuid.UUID, name string) error
-	assignNoteToSectionFunc  func(ctx context.Context, noteID, notebookID uuid.UUID, sectionID *uuid.UUID) error
-	fetchSectionNotesFunc    func(ctx context.Context, sectionID uuid.UUID) ([]models.Note, error)
+	updateSectionNameFunc     func(ctx context.Context, id uuid.UUID, name string) error
+	assignNoteToSectionFunc   func(ctx context.Context, noteID, notebookID uuid.UUID, sectionID *uuid.UUID) error
+	fetchSectionNotesFunc     func(ctx context.Context, sectionID uuid.UUID) ([]models.Note, error)
 	fetchUnsectionedNotesFunc func(ctx context.Context, notebookID uuid.UUID) ([]models.Note, error)
+}
+
+// UpdateNotePosition implements repositories.SectionRepositoryInterface.
+func (m *mockSectionRepository) UpdateNotePosition(ctx context.Context, noteID uuid.UUID, notebookID uuid.UUID, newPosition int) error {
+	panic("unimplemented")
 }
 
 func (m *mockSectionRepository) FetchSection(ctx context.Context, id uuid.UUID) (models.Section, error) {
@@ -193,8 +199,8 @@ func TestFetchSection(t *testing.T) {
 			expectedStatus:   http.StatusForbidden,
 		},
 		{
-			name:      "Invalid section ID",
-			sectionID: "invalid-uuid",
+			name:           "Invalid section ID",
+			sectionID:      "invalid-uuid",
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -265,13 +271,13 @@ func TestListNotebookSections(t *testing.T) {
 	anotherUserID := uuid.New()
 
 	tests := []struct {
-		name             string
-		notebookID       string
-		mockNotebook     models.Notebook
-		mockSections     []models.Section
-		mockSectionsErr  error
-		expectedStatus   int
-		expectedCount    int
+		name            string
+		notebookID      string
+		mockNotebook    models.Notebook
+		mockSections    []models.Section
+		mockSectionsErr error
+		expectedStatus  int
+		expectedCount   int
 	}{
 		{
 			name:       "Successfully list sections",
@@ -495,12 +501,12 @@ func TestDeleteSection(t *testing.T) {
 	anotherUserID := uuid.New()
 
 	tests := []struct {
-		name             string
-		sectionID        string
-		mockSection      models.Section
-		mockNotebook     models.Notebook
-		mockDeleteErr    error
-		expectedStatus   int
+		name           string
+		sectionID      string
+		mockSection    models.Section
+		mockNotebook   models.Notebook
+		mockDeleteErr  error
+		expectedStatus int
 	}{
 		{
 			name:      "Successfully delete section",
@@ -794,10 +800,10 @@ func TestAssignNoteToSection(t *testing.T) {
 			expectedStatus: http.StatusNoContent,
 		},
 		{
-			name:       "Invalid note ID",
-			noteID:     "invalid-uuid",
-			notebookID: testNotebookID.String(),
-			sectionID:  &testSectionID,
+			name:           "Invalid note ID",
+			noteID:         "invalid-uuid",
+			notebookID:     testNotebookID.String(),
+			sectionID:      &testSectionID,
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -856,13 +862,13 @@ func TestGetSectionNotes(t *testing.T) {
 	testSectionID := uuid.New()
 
 	tests := []struct {
-		name          string
-		sectionID     string
-		mockSection   models.Section
-		mockNotebook  models.Notebook
-		mockNotes     []models.Note
+		name           string
+		sectionID      string
+		mockSection    models.Section
+		mockNotebook   models.Notebook
+		mockNotes      []models.Note
 		expectedStatus int
-		expectedCount int
+		expectedCount  int
 	}{
 		{
 			name:      "Successfully get section notes",
@@ -953,12 +959,12 @@ func TestGetUnsectionedNotes(t *testing.T) {
 	testNotebookID := uuid.New()
 
 	tests := []struct {
-		name          string
-		notebookID    string
-		mockNotebook  models.Notebook
-		mockNotes     []models.Note
+		name           string
+		notebookID     string
+		mockNotebook   models.Notebook
+		mockNotes      []models.Note
 		expectedStatus int
-		expectedCount int
+		expectedCount  int
 	}{
 		{
 			name:       "Successfully get unsectioned notes",

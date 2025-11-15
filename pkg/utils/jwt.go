@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
@@ -15,6 +16,22 @@ func SignJWT(key []byte, claims jwt.MapClaims) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
 
 	return token.SignedString(key)
+}
+
+// SignAccessToken creates a JWT access token with a 15-minute expiration
+// userID: The user's UUID
+// username: The user's username
+func SignAccessToken(key []byte, userID uuid.UUID, username string) (string, error) {
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"sub":      userID.String(),
+		"username": username,
+		"type":     "access", // Token type for additional validation
+		"iat":      now.Unix(),
+		"exp":      now.Add(15 * time.Minute).Unix(), // 15 minute expiration
+	}
+
+	return SignJWT(key, claims)
 }
 
 func ParseJWT(key []byte, jwtString string) (map[string]interface{}, error) {
@@ -62,6 +79,22 @@ func ExtractUserInfo(claims map[string]interface{}) (uuid.UUID, string, error) {
 	}
 
 	return userID, username, nil
+}
+
+// ValidateTokenType checks if the token has the expected type claim
+func ValidateTokenType(claims map[string]interface{}, expectedType string) error {
+	tokenType, ok := claims["type"].(string)
+	if !ok {
+		// For backward compatibility, allow tokens without type claim
+		// This can be removed once all old tokens have expired
+		return nil
+	}
+
+	if tokenType != expectedType {
+		return fmt.Errorf("invalid token type: expected %s, got %s", expectedType, tokenType)
+	}
+
+	return nil
 }
 
 func ParseHeaderJWTClaims(r *http.Request, jwtKey []byte) (map[string]interface{}, error) {

@@ -4,11 +4,15 @@ import (
 	"context"
 	"log"
 	"os"
+	"time"
+
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers"
 	"tofoss/org-go/pkg/middleware"
 	"tofoss/org-go/pkg/services"
 
+	"github.com/didip/tollbooth/v8"
+	"github.com/didip/tollbooth/v8/limiter"
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,6 +38,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 
 	// Initialize repositories
 	userRepository := repositories.NewUserRepository(pool)
+	refreshTokenRepository := repositories.NewRefreshTokenRepository(pool)
 	noteRepository := repositories.NewNoteRepository(pool)
 	notebookRepository := repositories.NewNotebookRepository(pool)
 	sectionRepository := repositories.NewSectionRepository(pool)
@@ -56,26 +61,36 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	jobQueue := services.NewRecipeJobQueue(recipeJobRepository, recipeProcessor)
 
 	// Initialize handlers
-	userHandler := handlers.NewUserHandler(userRepository, jwtKey, xsrfKey)
+	userHandler := handlers.NewUserHandler(userRepository, refreshTokenRepository, jwtKey, xsrfKey)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
 	notebookHandler := handlers.NewNotebookHandler(notebookRepository, noteRepository)
 	sectionHandler := handlers.NewSectionHandler(sectionRepository, notebookRepository)
 	tagHandler := handlers.NewTagHandler(tagRepository)
 	recipeHandler := handlers.NewRecipeHandler(recipeRepository, recipeJobRepository, noteRepository)
 
+	// Setup rate limiter for auth endpoints (5 requests per minute)
+	authLimiter := tollbooth.NewLimiter(5, &limiter.ExpirableOptions{
+		DefaultExpirationTTL: time.Minute,
+	})
+	authLimiter.SetMessage("Rate limit exceeded. Please try again later.")
+
 	// Setup routes
 	router := chi.NewRouter()
 	router.Use(middleware.CorsMiddleware, chiMiddleware.Logger)
-	
+
 	router.Route("/users", func(r chi.Router) {
-		r.Post("/register", userHandler.Register)
-		r.Post("/login", userHandler.Login)
+		// Rate-limited auth endpoints
+		r.With(tollbooth.HTTPMiddleware(authLimiter)).Post("/register", userHandler.Register)
+		r.With(tollbooth.HTTPMiddleware(authLimiter)).Post("/login", userHandler.Login)
+
+		// Non-rate-limited endpoints
 		r.Post("/logout", userHandler.Logout)
+		r.Post("/refresh", userHandler.Refresh)
 		r.Get("/status", userHandler.Status)
 	})
-	
+
 	router.Route("/notes", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Get("/", noteHandler.FetchUsersNotes)
 		r.Get("/search", noteHandler.SearchNotes)
 		r.Get("/{id}", noteHandler.FetchNote)
@@ -88,9 +103,9 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Put("/{noteId}/notebooks/{notebookId}/section", sectionHandler.AssignNoteToSection)
 		r.Put("/{noteId}/notebooks/{notebookId}/position", sectionHandler.UpdateNotePosition)
 	})
-	
+
 	router.Route("/notebooks", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Get("/", notebookHandler.FetchUserNotebooks)
 		r.Get("/{id}", notebookHandler.FetchNotebook)
 		r.Post("/", notebookHandler.PostNotebook)
@@ -103,7 +118,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	})
 
 	router.Route("/sections", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Get("/{id}", sectionHandler.FetchSection)
 		r.Post("/", sectionHandler.PostSection)
 		r.Delete("/{id}", sectionHandler.DeleteSection)
@@ -113,14 +128,14 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	})
 
 	router.Route("/tags", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Get("/{id}", tagHandler.FetchTag)
 		r.Post("/", tagHandler.PostTag)
 		r.Get("/", tagHandler.FetchAll)
 	})
 
 	router.Route("/recipes", func(r chi.Router) {
-		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection, chiMiddleware.Logger)
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Post("/", recipeHandler.CreateRecipeFromURL)
 		r.Get("/jobs/{id}", recipeHandler.GetRecipeJobStatus)
 	})

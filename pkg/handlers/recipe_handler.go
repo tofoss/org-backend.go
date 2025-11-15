@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
 	"tofoss/org-go/pkg/handlers/requests"
@@ -21,9 +23,9 @@ import (
 )
 
 type RecipeHandler struct {
-	recipeRepo    *repositories.RecipeRepository
-	jobRepo       *repositories.RecipeJobRepository
-	noteRepo      *repositories.NoteRepository
+	recipeRepo *repositories.RecipeRepository
+	jobRepo    *repositories.RecipeJobRepository
+	noteRepo   *repositories.NoteRepository
 }
 
 func NewRecipeHandler(
@@ -129,7 +131,8 @@ func (h *RecipeHandler) GetRecipeJobStatus(w http.ResponseWriter, r *http.Reques
 			response.Recipe = &recipe
 		}
 
-		note, err := h.noteRepo.FetchNote(r.Context(), *job.NoteID)
+		// Use FetchUsersNote to ensure user owns the note (defense in depth)
+		note, err := h.noteRepo.FetchUsersNote(r.Context(), *job.NoteID, userID)
 		if err == nil {
 			response.Note = &note
 		}
@@ -140,7 +143,7 @@ func (h *RecipeHandler) GetRecipeJobStatus(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(response)
 }
 
-// validateURL performs basic URL validation and security checks
+// validateURL performs comprehensive URL validation and SSRF protection
 func (h *RecipeHandler) validateURL(urlStr string) error {
 	// Parse URL
 	parsedURL, err := url.Parse(urlStr)
@@ -153,15 +156,77 @@ func (h *RecipeHandler) validateURL(urlStr string) error {
 		return fmt.Errorf("URL must use http or https scheme")
 	}
 
-	// Basic security: block localhost and private IP ranges
 	hostname := strings.ToLower(parsedURL.Hostname())
-	if hostname == "localhost" || 
-		strings.HasPrefix(hostname, "127.") ||
-		strings.HasPrefix(hostname, "192.168.") ||
-		strings.HasPrefix(hostname, "10.") ||
-		strings.Contains(hostname, "169.254.") {
+
+	// Block localhost aliases
+	if hostname == "localhost" || hostname == "0.0.0.0" {
 		return fmt.Errorf("private/localhost URLs are not allowed")
+	}
+
+	// Try to parse as IP address
+	ip := net.ParseIP(hostname)
+	if ip != nil {
+		// Direct IP address - check if it's private
+		if isPrivateIP(ip) {
+			return fmt.Errorf("private IP addresses are not allowed")
+		}
+	} else {
+		// Hostname - resolve it and check all IPs
+		ips, err := net.LookupIP(hostname)
+		if err != nil {
+			return fmt.Errorf("failed to resolve hostname: %w", err)
+		}
+
+		for _, resolvedIP := range ips {
+			if isPrivateIP(resolvedIP) {
+				return fmt.Errorf("hostname resolves to private IP address")
+			}
+		}
 	}
 
 	return nil
 }
+
+// isPrivateIP checks if an IP address is private/internal
+func isPrivateIP(ip net.IP) bool {
+	// Loopback addresses
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Link-local addresses (169.254.0.0/16 for IPv4, fe80::/10 for IPv6)
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Check for private IPv4 ranges
+	if ip4 := ip.To4(); ip4 != nil {
+		// 10.0.0.0/8
+		if ip4[0] == 10 {
+			return true
+		}
+		// 172.16.0.0/12
+		if ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31 {
+			return true
+		}
+		// 192.168.0.0/16
+		if ip4[0] == 192 && ip4[1] == 168 {
+			return true
+		}
+		// 127.0.0.0/8 (loopback, but double-check)
+		if ip4[0] == 127 {
+			return true
+		}
+	}
+
+	// Check for private IPv6 ranges
+	if ip.To4() == nil {
+		// Unique local addresses (fc00::/7)
+		if len(ip) >= 2 && (ip[0]&0xfe) == 0xfc {
+			return true
+		}
+	}
+
+	return false
+}
+

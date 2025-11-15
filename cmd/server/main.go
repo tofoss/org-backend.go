@@ -31,10 +31,13 @@ func main() {
 	srv.Start(ctx)
 	defer srv.Stop()
 
-	// Setup HTTP server
+	// Setup HTTP server with timeouts for security
 	httpServer := &http.Server{
-		Addr:    ":8081",
-		Handler: srv.Router,
+		Addr:         ":8081",
+		Handler:      srv.Router,
+		ReadTimeout:  15 * time.Second,  // Maximum duration for reading the request
+		WriteTimeout: 15 * time.Second,  // Maximum duration for writing the response
+		IdleTimeout:  60 * time.Second,  // Maximum idle time between requests
 	}
 
 	// Start HTTP server in a goroutine

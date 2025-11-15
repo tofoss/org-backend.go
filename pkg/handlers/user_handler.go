@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
@@ -11,23 +12,29 @@ import (
 	"tofoss/org-go/pkg/handlers/responses"
 	"tofoss/org-go/pkg/utils"
 
-	"github.com/golang-jwt/jwt"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/xsrftoken"
 )
 
+const (
+	AccessTokenDuration  = 15 * time.Minute
+	RefreshTokenDuration = 7 * 24 * time.Hour
+)
+
 type UserHandler struct {
-	repo    *repositories.UserRepository
-	jwtKey  []byte
-	xsrfKey []byte
+	repo             *repositories.UserRepository
+	refreshTokenRepo *repositories.RefreshTokenRepository
+	jwtKey           []byte
+	xsrfKey          []byte
 }
 
 func NewUserHandler(
 	repo *repositories.UserRepository,
+	refreshTokenRepo *repositories.RefreshTokenRepository,
 	jwtKey []byte,
 	xsrfKey []byte,
 ) UserHandler {
-	return UserHandler{repo, jwtKey, xsrfKey}
+	return UserHandler{repo, refreshTokenRepo, jwtKey, xsrfKey}
 }
 
 func (h *UserHandler) Status(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +72,19 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("could not decode request, %v", err)
 		errors.BadRequest(w)
+		return
+	}
+
+	// Input validation
+	if len(req.Username) < 3 || len(req.Username) > 50 {
+		errors.BadRequest(w)
+		w.Write([]byte(`{"error": "Username must be between 3 and 50 characters"}`))
+		return
+	}
+
+	if len(req.Password) < 8 || len(req.Password) > 128 {
+		errors.BadRequest(w)
+		w.Write([]byte(`{"error": "Password must be between 8 and 128 characters"}`))
 		return
 	}
 
@@ -106,47 +126,78 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch hashed password (returns empty string if user doesn't exist)
 	hash, err := h.repo.FetchHashedPassword(r.Context(), req.Username)
-	if err != nil {
-		log.Printf("could not fetch hashed password, %v", err)
-		errors.InternalServerError(w)
-		return
+
+	// Use a dummy hash if user doesn't exist to prevent timing attacks
+	// This ensures bcrypt is always run with the same cost factor
+	if err != nil || hash == "" {
+		// Use a valid bcrypt hash (cost 10) so timing is consistent
+		hash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 	}
 
-	if !verifyPassord(hash, req.Password) {
-		log.Printf("user %s failed login attempt", req.Username)
+	// Always run bcrypt verification, even if user doesn't exist
+	validPassword := verifyPassord(hash, req.Password)
+
+	// Fetch user info (may be nil if user doesn't exist)
+	user, fetchErr := h.repo.FetchUser(r.Context(), req.Username)
+
+	// Check both conditions after all operations complete
+	if !validPassword || fetchErr != nil || user == nil {
+		log.Printf("failed login attempt for username: %s", req.Username)
 		errors.Unauthorized(w, "invalid username or password")
 		return
 	}
 
-	user, err := h.repo.FetchUser(r.Context(), req.Username)
+	// Generate access token (15 minutes)
+	accessToken, err := utils.SignAccessToken(h.jwtKey, user.ID, user.Username)
 	if err != nil {
-		log.Printf("failed to fetch user, %v", err)
+		log.Printf("failed to sign access token, %v", err)
 		errors.InternalServerError(w)
 		return
 	}
 
-	claims := jwt.MapClaims{
-		"sub":      user.ID.String(),
-		"username": user.Username,
-	}
-
-	jwt, err := utils.SignJWT(h.jwtKey, claims)
+	// Generate refresh token (7 days)
+	refreshToken, err := utils.GenerateRefreshToken()
 	if err != nil {
-		log.Printf("failed to sign jwt, %v", err)
+		log.Printf("failed to generate refresh token, %v", err)
 		errors.InternalServerError(w)
 		return
 	}
 
+	// Store refresh token hash in database
+	tokenHash := utils.HashToken(refreshToken)
+	expiresAt := time.Now().Add(RefreshTokenDuration)
+	err = h.refreshTokenRepo.Insert(r.Context(), user.ID, tokenHash, expiresAt)
+	if err != nil {
+		log.Printf("failed to store refresh token, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Set access token cookie (15 minutes)
 	jwtCookie := http.Cookie{
 		Name:     "JWT-Cookie",
-		Value:    jwt,
+		Value:    accessToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(AccessTokenDuration.Seconds()),
 	}
 
+	// Set refresh token cookie (7 days)
+	refreshCookie := http.Cookie{
+		Name:     "REFRESH-TOKEN",
+		Value:    refreshToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(RefreshTokenDuration.Seconds()),
+	}
+
+	// Set XSRF token cookie (matches access token duration)
 	xsrfCookie := http.Cookie{
 		Name:     "XSRF-TOKEN",
 		Value:    xsrftoken.Generate(string(h.xsrfKey), user.ID.String(), ""),
@@ -154,14 +205,133 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: false,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(AccessTokenDuration.Seconds()),
 	}
 
 	http.SetCookie(w, &jwtCookie)
+	http.SetCookie(w, &refreshCookie)
 	http.SetCookie(w, &xsrfCookie)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"message": "Login successful"})
+}
+
+// Refresh handles token rotation - validates refresh token and issues new tokens
+func (h *UserHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	// Get refresh token from cookie
+	refreshCookie, err := r.Cookie("REFRESH-TOKEN")
+	if err != nil {
+		log.Printf("refresh token cookie not found, %v", err)
+		errors.Unauthorized(w, "refresh token required")
+		return
+	}
+
+	refreshToken := refreshCookie.Value
+	tokenHash := utils.HashToken(refreshToken)
+
+	// Validate refresh token and get user ID
+	valid, userID, err := h.refreshTokenRepo.IsValid(r.Context(), tokenHash)
+	if err != nil {
+		log.Printf("error validating refresh token, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	if !valid {
+		log.Printf("invalid or expired refresh token")
+		errors.Unauthorized(w, "invalid or expired refresh token")
+		return
+	}
+
+	// Get user info by ID
+	user, err := h.repo.FetchUserByID(r.Context(), userID.String())
+	if err != nil {
+		log.Printf("failed to fetch user by ID, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	if user == nil {
+		log.Printf("user not found for ID %s", userID.String())
+		errors.Unauthorized(w, "user not found")
+		return
+	}
+
+	// Revoke the old refresh token (single-use tokens)
+	err = h.refreshTokenRepo.Revoke(r.Context(), tokenHash)
+	if err != nil {
+		log.Printf("failed to revoke old refresh token, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Generate new access token (15 minutes)
+	accessToken, err := utils.SignAccessToken(h.jwtKey, userID, user.Username)
+	if err != nil {
+		log.Printf("failed to sign access token, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Generate new refresh token (7 days)
+	newRefreshToken, err := utils.GenerateRefreshToken()
+	if err != nil {
+		log.Printf("failed to generate refresh token, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Store new refresh token hash
+	newTokenHash := utils.HashToken(newRefreshToken)
+	expiresAt := time.Now().Add(RefreshTokenDuration)
+	err = h.refreshTokenRepo.Insert(r.Context(), userID, newTokenHash, expiresAt)
+	if err != nil {
+		log.Printf("failed to store refresh token, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Set new access token cookie
+	jwtCookie := http.Cookie{
+		Name:     "JWT-Cookie",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(AccessTokenDuration.Seconds()),
+	}
+
+	// Set new refresh token cookie
+	newRefreshCookie := http.Cookie{
+		Name:     "REFRESH-TOKEN",
+		Value:    newRefreshToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(RefreshTokenDuration.Seconds()),
+	}
+
+	// Set new XSRF token cookie
+	xsrfCookie := http.Cookie{
+		Name:     "XSRF-TOKEN",
+		Value:    xsrftoken.Generate(string(h.xsrfKey), userID.String(), ""),
+		Path:     "/",
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(AccessTokenDuration.Seconds()),
+	}
+
+	http.SetCookie(w, &jwtCookie)
+	http.SetCookie(w, &newRefreshCookie)
+	http.SetCookie(w, &xsrfCookie)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Token refreshed successfully"})
 }
 
 func hashPassword(password string) (string, error) {
@@ -178,11 +348,33 @@ func verifyPassord(hash, password string) bool {
 	return err == nil
 }
 
-// Logout clears the JWT and XSRF cookies
+// Logout revokes the refresh token and clears all auth cookies
 func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Try to revoke the refresh token if present
+	refreshCookie, err := r.Cookie("REFRESH-TOKEN")
+	if err == nil && refreshCookie.Value != "" {
+		tokenHash := utils.HashToken(refreshCookie.Value)
+		err = h.refreshTokenRepo.Revoke(r.Context(), tokenHash)
+		if err != nil {
+			log.Printf("failed to revoke refresh token during logout, %v", err)
+			// Continue with logout even if revocation fails
+		}
+	}
+
 	// Clear JWT cookie
 	jwtCookie := http.Cookie{
 		Name:     "JWT-Cookie",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+
+	// Clear refresh token cookie
+	refreshTokenCookie := http.Cookie{
+		Name:     "REFRESH-TOKEN",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
@@ -203,6 +395,7 @@ func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &jwtCookie)
+	http.SetCookie(w, &refreshTokenCookie)
 	http.SetCookie(w, &xsrfCookie)
 
 	w.Header().Set("Content-Type", "application/json")

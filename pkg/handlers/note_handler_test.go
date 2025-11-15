@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/models"
 	"tofoss/org-go/pkg/utils"
@@ -17,6 +18,11 @@ import (
 // mockNoteRepository is a mock implementation of NoteRepositoryInterface for testing
 type mockNoteRepository struct {
 	searchNotesFunc func(ctx context.Context, userID uuid.UUID, query string, limit int, offset int) ([]models.Note, error)
+}
+
+// DeleteNote implements repositories.NoteRepositoryInterface.
+func (m *mockNoteRepository) DeleteNote(ctx context.Context, noteID uuid.UUID) error {
+	panic("unimplemented")
 }
 
 // Implement all interface methods - most will panic if called unexpectedly
