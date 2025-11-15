@@ -70,6 +70,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	router.Route("/users", func(r chi.Router) {
 		r.Post("/register", userHandler.Register)
 		r.Post("/login", userHandler.Login)
+		r.Post("/logout", userHandler.Logout)
 		r.Get("/status", userHandler.Status)
 	})
 	
@@ -79,6 +80,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Get("/search", noteHandler.SearchNotes)
 		r.Get("/{id}", noteHandler.FetchNote)
 		r.Post("/", noteHandler.PostNote)
+		r.Delete("/{id}", noteHandler.DeleteNote)
 		r.Get("/{id}/tags", noteHandler.GetNoteTags)
 		r.Put("/{id}/tags", noteHandler.AssignNoteTags)
 		r.Delete("/{id}/tags/{tagId}", noteHandler.RemoveNoteTag)

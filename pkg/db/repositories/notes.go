@@ -634,3 +634,10 @@ func (r *NoteRepository) unmarshalRecipeJSON(recipe *models.Recipe, ingredientsJ
 
 	return nil
 }
+
+// DeleteNote deletes a note by ID
+func (r *NoteRepository) DeleteNote(ctx context.Context, noteID uuid.UUID) error {
+	query := `DELETE FROM notes WHERE id = $1`
+	_, err := r.pool.Exec(ctx, query, noteID)
+	return err
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers/errors"
 	"tofoss/org-go/pkg/handlers/requests"
@@ -61,7 +62,6 @@ func (h *UserHandler) Status(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req requests.Register
 	err := json.NewDecoder(r.Body).Decode(&req)
-
 	if err != nil {
 		log.Printf("could not decode request, %v", err)
 		errors.BadRequest(w)
@@ -88,7 +88,6 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = h.repo.Insert(r.Context(), req.Username, pw)
-
 	if err != nil {
 		log.Printf("could not insert user, %v", err)
 		errors.InternalServerError(w)
@@ -101,7 +100,6 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req requests.Login
 	err := json.NewDecoder(r.Body).Decode(&req)
-
 	if err != nil {
 		log.Printf("could not decode request, %v", err)
 		errors.BadRequest(w)
@@ -156,7 +154,6 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: false,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   86400,
 	}
 
 	http.SetCookie(w, &jwtCookie)
@@ -179,4 +176,36 @@ func hashPassword(password string) (string, error) {
 func verifyPassord(hash, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
+}
+
+// Logout clears the JWT and XSRF cookies
+func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	// Clear JWT cookie
+	jwtCookie := http.Cookie{
+		Name:     "jwt",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+
+	// Clear XSRF cookie
+	xsrfCookie := http.Cookie{
+		Name:     "XSRF-TOKEN",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+
+	http.SetCookie(w, &jwtCookie)
+	http.SetCookie(w, &xsrfCookie)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Logout successful"})
 }

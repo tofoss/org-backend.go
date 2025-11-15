@@ -431,3 +431,43 @@ func (h *NoteHandler) GetNoteNotebooks(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(notebooks)
 }
+
+// DeleteNote deletes a note
+func (h *NoteHandler) DeleteNote(w http.ResponseWriter, r *http.Request) {
+	userID, _, err := utils.UserContext(r)
+	if err != nil {
+		log.Printf("user context error: %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	noteID, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		log.Printf("invalid note ID: %v", err)
+		errors.BadRequest(w)
+		return
+	}
+
+	// Verify user owns this note before deleting
+	_, err = h.repo.FetchUsersNote(r.Context(), noteID, userID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			log.Printf("note %s not found or user %s doesn't have access", noteID, userID)
+			errors.NotFound(w, "note not found")
+			return
+		}
+		log.Printf("unable to fetch note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	// Delete the note
+	err = h.repo.DeleteNote(r.Context(), noteID)
+	if err != nil {
+		log.Printf("failed to delete note %s: %v", noteID, err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

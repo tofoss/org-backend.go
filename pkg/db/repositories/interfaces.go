@@ -26,6 +26,7 @@ type NoteRepositoryInterface interface {
 	AssignRecipesToNote(ctx context.Context, noteID uuid.UUID, recipeIDs []uuid.UUID) error
 	RemoveRecipeFromNote(ctx context.Context, noteID uuid.UUID, recipeID uuid.UUID) error
 	FetchNoteWithRecipes(ctx context.Context, noteID uuid.UUID) (models.Note, error)
+	DeleteNote(ctx context.Context, noteID uuid.UUID) error
 }
 
 // Ensure NoteRepository implements the interface
