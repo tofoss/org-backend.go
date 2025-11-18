@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path"
 	"time"
 
 	"tofoss/org-go/pkg/db/repositories"
@@ -16,6 +17,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	_  = iota             // Discard the first iota value (0)
+	KB = 1 << (10 * iota) // Kilobyte (1024 bytes)
+	MB = 1 << (10 * iota) // Megabyte (1024 KB = 1024 * 1024 bytes)
+	GB = 1 << (10 * iota) // Gigabyte (1024 MB)
+	TB = 1 << (10 * iota) // Terabyte (1024 GB)
 )
 
 // Server holds the router and background services
@@ -46,6 +55,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	recipeRepository := repositories.NewRecipeRepository(pool)
 	recipeJobRepository := repositories.NewRecipeJobRepository(pool)
 	recipeCacheRepository := repositories.NewRecipeURLCacheRepository(pool)
+	fileRepository := repositories.NewFileRepository(pool)
 
 	// Initialize services
 	recipeProcessor, err := services.NewRecipeProcessor(
@@ -60,6 +70,27 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 
 	jobQueue := services.NewRecipeJobQueue(recipeJobRepository, recipeProcessor)
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic("home directory is not set")
+	}
+
+	fileConfig := services.FileConfig{
+		StorageRoot: path.Join(home, "org", "uploads"),
+		MaxFilesize: 10 * MB,
+		SupportedFiletypes: map[string]string{
+			"image/apng":    "apng",
+			"image/avif":    "avif",
+			"image/jpeg":    "jpeg",
+			"image/png":     "png",
+			"image/gif":     "gif",
+			"image/svg+xml": "svg",
+			"image/webp":    "webp",
+		},
+	}
+
+	fileService := services.NewFileService(fileRepository, fileConfig)
+
 	// Initialize handlers
 	userHandler := handlers.NewUserHandler(userRepository, refreshTokenRepository, jwtKey, xsrfKey)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
@@ -67,6 +98,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	sectionHandler := handlers.NewSectionHandler(sectionRepository, notebookRepository)
 	tagHandler := handlers.NewTagHandler(tagRepository)
 	recipeHandler := handlers.NewRecipeHandler(recipeRepository, recipeJobRepository, noteRepository)
+	fileHandler := handlers.NewFileHandler(fileService, fileConfig)
 
 	// Setup rate limiter for auth endpoints (5 requests per minute)
 	authLimiter := tollbooth.NewLimiter(5, &limiter.ExpirableOptions{
@@ -138,6 +170,12 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Post("/", recipeHandler.CreateRecipeFromURL)
 		r.Get("/jobs/{id}", recipeHandler.GetRecipeJobStatus)
+	})
+
+	router.Route("/files", func(r chi.Router) {
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
+		r.Post("/", fileHandler.UploadFile)
+		r.Get("/{id}", fileHandler.FetchFile)
 	})
 
 	return &Server{

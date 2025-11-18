@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+
 	"tofoss/org-go/pkg/models"
 
 	"github.com/google/uuid"
@@ -62,3 +63,10 @@ type NotebookRepositoryInterface interface {
 
 // Ensure NotebookRepository implements the interface
 var _ NotebookRepositoryInterface = (*NotebookRepository)(nil)
+
+type FileRepositoryInterface interface {
+	Insert(ctx context.Context, file models.FileMetadata) (models.FileMetadata, error)
+	FetchFileForUser(ctx context.Context, id, userID uuid.UUID) (models.FileMetadata, error)
+}
+
+var _ FileRepositoryInterface = (*FileRepository)(nil)
