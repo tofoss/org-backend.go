@@ -99,6 +99,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	tagHandler := handlers.NewTagHandler(tagRepository)
 	recipeHandler := handlers.NewRecipeHandler(recipeRepository, recipeJobRepository, noteRepository)
 	fileHandler := handlers.NewFileHandler(fileService, fileConfig)
+	treeHandler := handlers.NewTreeHandler(pool)
 
 	// Setup rate limiter for auth endpoints (5 requests per minute)
 	authLimiter := tollbooth.NewLimiter(5, &limiter.ExpirableOptions{
@@ -176,6 +177,11 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
 		r.Post("/", fileHandler.UploadFile)
 		r.Get("/{id}", fileHandler.FetchFile)
+	})
+
+	router.Route("/tree", func(r chi.Router) {
+		r.Use(middleware.JWTMiddleware(jwtKey), middleware.XSRFProtection(xsrfKey), chiMiddleware.Logger)
+		r.Get("/", treeHandler.GetTree)
 	})
 
 	return &Server{
