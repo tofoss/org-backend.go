@@ -82,12 +82,14 @@ func (h *NoteHandler) FetchUsersNotes(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
+		return
 	}
 
 	notes, err := h.repo.FetchUsersNotes(r.Context(), userID)
 	if err != nil {
 		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -149,6 +151,7 @@ func (h *NoteHandler) PostNote(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("unable to fetch users notes: %v", err)
 		errors.InternalServerError(w)
+		return
 	}
 
 	var note *models.Note
@@ -161,6 +164,7 @@ func (h *NoteHandler) PostNote(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("could not upsert note: %v", err)
 		errors.InternalServerError(w)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
