@@ -70,3 +70,11 @@ type FileRepositoryInterface interface {
 }
 
 var _ FileRepositoryInterface = (*FileRepository)(nil)
+
+// TreeRepositoryInterface defines the contract for tree data access
+type TreeRepositoryInterface interface {
+	GetTree(ctx context.Context, userID uuid.UUID) (models.TreeData, error)
+}
+
+// Ensure TreeRepository implements the interface
+var _ TreeRepositoryInterface = (*TreeRepository)(nil)

@@ -56,6 +56,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	recipeJobRepository := repositories.NewRecipeJobRepository(pool)
 	recipeCacheRepository := repositories.NewRecipeURLCacheRepository(pool)
 	fileRepository := repositories.NewFileRepository(pool)
+	treeRepository := repositories.NewTreeRepository(pool)
 
 	// Initialize services
 	recipeProcessor, err := services.NewRecipeProcessor(
@@ -99,7 +100,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	tagHandler := handlers.NewTagHandler(tagRepository)
 	recipeHandler := handlers.NewRecipeHandler(recipeRepository, recipeJobRepository, noteRepository)
 	fileHandler := handlers.NewFileHandler(fileService, fileConfig)
-	treeHandler := handlers.NewTreeHandler(pool)
+	treeHandler := handlers.NewTreeHandler(treeRepository)
 
 	// Setup rate limiter for auth endpoints (5 requests per minute)
 	authLimiter := tollbooth.NewLimiter(5, &limiter.ExpirableOptions{
