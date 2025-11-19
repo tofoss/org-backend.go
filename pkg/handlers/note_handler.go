@@ -45,7 +45,22 @@ func (h *NoteHandler) FetchNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	note, err := h.repo.FetchNoteWithTags(r.Context(), noteID)
+	// First, try to fetch as owner (prevents timing-based IDOR)
+	note, err := h.repo.FetchUsersNoteWithTags(r.Context(), noteID, userID)
+	if err == nil {
+		// User owns this note
+		response := responses.FetchNoteResponse{
+			Note:       note,
+			IsEditable: true,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// User doesn't own it - check if it's a published note
+	note, err = h.repo.FetchNoteWithTags(r.Context(), noteID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			log.Printf("note %s not found %v", noteID, err)
@@ -57,19 +72,20 @@ func (h *NoteHandler) FetchNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !note.Published && note.UserID != userID {
+	// Return 404 for unpublished notes (same as not found to prevent info leak)
+	if !note.Published {
 		log.Printf(
 			"%s does not have access to note %s which is not published",
 			userID,
 			noteID,
 		)
-		errors.Unauthenticated(w)
+		errors.NotFound(w, "note not found")
 		return
 	}
 
 	response := responses.FetchNoteResponse{
 		Note:       note,
-		IsEditable: userID == note.UserID,
+		IsEditable: false,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

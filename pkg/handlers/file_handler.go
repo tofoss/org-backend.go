@@ -53,6 +53,7 @@ func (h *FileHandler) FetchFile(w http.ResponseWriter, r *http.Request) {
 		errors.InternalServerError(w)
 		return
 	}
+	defer file.Close()
 
 	response := make([]byte, metadata.Filesize)
 

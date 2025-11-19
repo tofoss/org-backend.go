@@ -45,5 +45,9 @@ func (d *DeepseekClient) Chat(
 		response.Usage.TotalTokens,
 	)
 
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("no choices returned from API")
+	}
+
 	return response.Choices[0].Message.Content, nil
 }
