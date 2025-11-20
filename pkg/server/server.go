@@ -39,6 +39,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config) (*Se
 	recipeCacheRepository := repositories.NewRecipeURLCacheRepository(pool)
 	fileRepository := repositories.NewFileRepository(pool)
 	treeRepository := repositories.NewTreeRepository(pool)
+	inviteCodeRepository := repositories.NewInviteCodeRepository(pool)
 
 	// Initialize services
 	recipeProcessor, err := services.NewRecipeProcessor(
@@ -84,7 +85,7 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config) (*Se
 		RefreshTokenDuration: cfg.RefreshTokenDuration,
 		CookieSecure:         cfg.CookieSecure,
 	}
-	userHandler := handlers.NewUserHandler(userRepository, refreshTokenRepository, jwtKey, xsrfKey, authConfig)
+	userHandler := handlers.NewUserHandler(userRepository, refreshTokenRepository, inviteCodeRepository, jwtKey, xsrfKey, authConfig)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
 	notebookHandler := handlers.NewNotebookHandler(notebookRepository, noteRepository)
 	sectionHandler := handlers.NewSectionHandler(sectionRepository, notebookRepository)

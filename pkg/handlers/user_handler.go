@@ -12,6 +12,7 @@ import (
 	"tofoss/org-go/pkg/handlers/responses"
 	"tofoss/org-go/pkg/utils"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/net/xsrftoken"
 )
@@ -26,6 +27,7 @@ type AuthConfig struct {
 type UserHandler struct {
 	repo             *repositories.UserRepository
 	refreshTokenRepo *repositories.RefreshTokenRepository
+	inviteCodeRepo   *repositories.InviteCodeRepository
 	jwtKey           []byte
 	xsrfKey          []byte
 	authConfig       AuthConfig
@@ -34,11 +36,12 @@ type UserHandler struct {
 func NewUserHandler(
 	repo *repositories.UserRepository,
 	refreshTokenRepo *repositories.RefreshTokenRepository,
+	inviteCodeRepo *repositories.InviteCodeRepository,
 	jwtKey []byte,
 	xsrfKey []byte,
 	authConfig AuthConfig,
 ) UserHandler {
-	return UserHandler{repo, refreshTokenRepo, jwtKey, xsrfKey, authConfig}
+	return UserHandler{repo, refreshTokenRepo, inviteCodeRepo, jwtKey, xsrfKey, authConfig}
 }
 
 func (h *UserHandler) Status(w http.ResponseWriter, r *http.Request) {
@@ -79,6 +82,33 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate invite code
+	if req.InviteCode == "" {
+		errors.BadRequest(w)
+		w.Write([]byte(`{"error": "Invite code is required"}`))
+		return
+	}
+
+	inviteCodeUUID, err := uuid.Parse(req.InviteCode)
+	if err != nil {
+		errors.BadRequest(w)
+		w.Write([]byte(`{"error": "Invalid invite code format"}`))
+		return
+	}
+
+	valid, err := h.inviteCodeRepo.IsValid(r.Context(), inviteCodeUUID)
+	if err != nil {
+		log.Printf("could not validate invite code, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	if !valid {
+		errors.BadRequest(w)
+		w.Write([]byte(`{"error": "Invalid or expired invite code"}`))
+		return
+	}
+
 	// Input validation
 	if len(req.Username) < 3 || len(req.Username) > 50 {
 		errors.BadRequest(w)
@@ -116,6 +146,20 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		log.Printf("could not insert user, %v", err)
 		errors.InternalServerError(w)
 		return
+	}
+
+	// Mark invite code as used
+	user, err := h.repo.FetchUser(r.Context(), req.Username)
+	if err != nil || user == nil {
+		log.Printf("could not fetch newly created user, %v", err)
+		errors.InternalServerError(w)
+		return
+	}
+
+	err = h.inviteCodeRepo.MarkUsed(r.Context(), inviteCodeUUID, user.ID)
+	if err != nil {
+		log.Printf("could not mark invite code as used, %v", err)
+		// User was created, so we don't fail the request
 	}
 
 	w.WriteHeader(200)

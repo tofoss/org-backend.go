@@ -78,3 +78,13 @@ type TreeRepositoryInterface interface {
 
 // Ensure TreeRepository implements the interface
 var _ TreeRepositoryInterface = (*TreeRepository)(nil)
+
+// InviteCodeRepositoryInterface defines the contract for invite code data access
+type InviteCodeRepositoryInterface interface {
+	GetByCode(ctx context.Context, code uuid.UUID) (*models.InviteCode, error)
+	IsValid(ctx context.Context, code uuid.UUID) (bool, error)
+	MarkUsed(ctx context.Context, code uuid.UUID, userID uuid.UUID) error
+}
+
+// Ensure InviteCodeRepository implements the interface
+var _ InviteCodeRepositoryInterface = (*InviteCodeRepository)(nil)
