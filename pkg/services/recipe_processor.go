@@ -20,13 +20,15 @@ import (
 )
 
 type RecipeProcessor struct {
-	recipeRepo   *repositories.RecipeRepository
-	jobRepo      *repositories.RecipeJobRepository
-	noteRepo     *repositories.NoteRepository
-	cacheRepo    *repositories.RecipeURLCacheRepository
-	extractor    *parser.MainContentExtractor
-	aiClient     genai.DeepseekClient
-	systemPrompt string
+	recipeRepo          *repositories.RecipeRepository
+	jobRepo             *repositories.RecipeJobRepository
+	noteRepo            *repositories.NoteRepository
+	cacheRepo           *repositories.RecipeURLCacheRepository
+	extractor           *parser.MainContentExtractor
+	aiClient            genai.DeepseekClient
+	systemPrompt        string
+	contentFetchTimeout time.Duration
+	aiProcessingTimeout time.Duration
 }
 
 func NewRecipeProcessor(
@@ -34,6 +36,8 @@ func NewRecipeProcessor(
 	jobRepo *repositories.RecipeJobRepository,
 	noteRepo *repositories.NoteRepository,
 	cacheRepo *repositories.RecipeURLCacheRepository,
+	contentFetchTimeout time.Duration,
+	aiProcessingTimeout time.Duration,
 ) (*RecipeProcessor, error) {
 	// Load AI prompt from file
 	promptPath := filepath.Join("prompts", "recipe_extraction.txt")
@@ -43,13 +47,15 @@ func NewRecipeProcessor(
 	}
 
 	return &RecipeProcessor{
-		recipeRepo:   recipeRepo,
-		jobRepo:      jobRepo,
-		noteRepo:     noteRepo,
-		cacheRepo:    cacheRepo,
-		extractor:    parser.NewMainContentExtractor(),
-		aiClient:     genai.NewDeepseekClient(),
-		systemPrompt: string(systemPromptBytes),
+		recipeRepo:          recipeRepo,
+		jobRepo:             jobRepo,
+		noteRepo:            noteRepo,
+		cacheRepo:           cacheRepo,
+		extractor:           parser.NewMainContentExtractor(),
+		aiClient:            genai.NewDeepseekClient(),
+		systemPrompt:        string(systemPromptBytes),
+		contentFetchTimeout: contentFetchTimeout,
+		aiProcessingTimeout: aiProcessingTimeout,
 	}, nil
 }
 
@@ -115,7 +121,7 @@ func (p *RecipeProcessor) ProcessJob(ctx context.Context, job models.RecipeJob) 
 
 func (p *RecipeProcessor) extractContent(ctx context.Context, url string) (string, error) {
 	// Set timeout for content extraction
-	extractCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	extractCtx, cancel := context.WithTimeout(ctx, p.contentFetchTimeout)
 	defer cancel()
 
 	// Use a goroutine to make the extraction cancellable
@@ -146,7 +152,7 @@ func (p *RecipeProcessor) processWithAI(
 	content string,
 ) (models.Recipe, error) {
 	// Set timeout for AI processing
-	aiCtx, cancel := context.WithTimeout(ctx, 180*time.Second)
+	aiCtx, cancel := context.WithTimeout(ctx, p.aiProcessingTimeout)
 	defer cancel()
 
 	response, err := p.aiClient.Chat(p.systemPrompt, content, true, aiCtx)

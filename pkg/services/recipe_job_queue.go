@@ -15,25 +15,31 @@ type RecipeJobQueue struct {
 	running   bool
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
-	
+
 	// Configuration
 	pollInterval time.Duration
 	batchSize    int
 	maxRetries   int
+	jobTimeout   time.Duration
 }
 
 func NewRecipeJobQueue(
 	jobRepo *repositories.RecipeJobRepository,
 	processor *RecipeProcessor,
+	pollInterval time.Duration,
+	batchSize int,
+	maxRetries int,
+	jobTimeout time.Duration,
 ) *RecipeJobQueue {
 	return &RecipeJobQueue{
 		jobRepo:      jobRepo,
 		processor:    processor,
 		running:      false,
 		stopCh:       make(chan struct{}),
-		pollInterval: 10 * time.Second,  // Poll every 10 seconds
-		batchSize:    5,                 // Process up to 5 jobs at once
-		maxRetries:   3,                 // Retry failed jobs up to 3 times
+		pollInterval: pollInterval,
+		batchSize:    batchSize,
+		maxRetries:   maxRetries,
+		jobTimeout:   jobTimeout,
 	}
 }
 
@@ -120,7 +126,7 @@ func (q *RecipeJobQueue) processJob(ctx context.Context, job models.RecipeJob) {
 	log.Printf("Processing recipe job %s (attempt %d)", job.ID, q.getJobAttempts(job))
 
 	// Create a context with timeout for this job
-	jobCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	jobCtx, cancel := context.WithTimeout(ctx, q.jobTimeout)
 	defer cancel()
 
 	// Process the job

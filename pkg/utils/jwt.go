@@ -18,17 +18,23 @@ func SignJWT(key []byte, claims jwt.MapClaims) (string, error) {
 	return token.SignedString(key)
 }
 
-// SignAccessToken creates a JWT access token with a 15-minute expiration
+// SignAccessToken creates a JWT access token with configurable expiration
 // userID: The user's UUID
 // username: The user's username
-func SignAccessToken(key []byte, userID uuid.UUID, username string) (string, error) {
+// duration: Token validity duration (optional, defaults to 15 minutes if zero)
+func SignAccessToken(key []byte, userID uuid.UUID, username string, duration ...time.Duration) (string, error) {
+	tokenDuration := 15 * time.Minute
+	if len(duration) > 0 && duration[0] > 0 {
+		tokenDuration = duration[0]
+	}
+
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"sub":      userID.String(),
 		"username": username,
 		"type":     "access", // Token type for additional validation
 		"iat":      now.Unix(),
-		"exp":      now.Add(15 * time.Minute).Unix(), // 15 minute expiration
+		"exp":      now.Add(tokenDuration).Unix(),
 	}
 
 	return SignJWT(key, claims)

@@ -3,10 +3,8 @@ package server
 import (
 	"context"
 	"log"
-	"os"
-	"path"
-	"time"
 
+	"tofoss/org-go/pkg/config"
 	"tofoss/org-go/pkg/db/repositories"
 	"tofoss/org-go/pkg/handlers"
 	"tofoss/org-go/pkg/middleware"
@@ -19,31 +17,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	_  = iota             // Discard the first iota value (0)
-	KB = 1 << (10 * iota) // Kilobyte (1024 bytes)
-	MB = 1 << (10 * iota) // Megabyte (1024 KB = 1024 * 1024 bytes)
-	GB = 1 << (10 * iota) // Gigabyte (1024 MB)
-	TB = 1 << (10 * iota) // Terabyte (1024 GB)
-)
-
-// Server holds the router and background services
 type Server struct {
 	Router   *chi.Mux
 	jobQueue *services.RecipeJobQueue
 }
 
 // NewServer creates a new server with all routes and background services
-func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
-	jwtKey := []byte(os.Getenv("JWT_SECRET"))
-	if len(jwtKey) == 0 {
-		panic("JWT_SECRET is not set")
-	}
-
-	xsrfKey := []byte(os.Getenv("XSRF_SECRET"))
-	if len(xsrfKey) == 0 {
-		panic("XSRF_SECRET is not set")
-	}
+func NewServer(ctx context.Context, pool *pgxpool.Pool, cfg *config.Config) (*Server, error) {
+	jwtKey := cfg.JWTSecret
+	xsrfKey := cfg.XSRFSecret
 
 	// Initialize repositories
 	userRepository := repositories.NewUserRepository(pool)
@@ -64,21 +46,25 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 		recipeJobRepository,
 		noteRepository,
 		recipeCacheRepository,
+		cfg.ContentFetchTimeout,
+		cfg.AIProcessingTimeout,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	jobQueue := services.NewRecipeJobQueue(recipeJobRepository, recipeProcessor)
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		panic("home directory is not set")
-	}
+	jobQueue := services.NewRecipeJobQueue(
+		recipeJobRepository,
+		recipeProcessor,
+		cfg.JobPollInterval,
+		cfg.JobBatchSize,
+		cfg.JobMaxRetries,
+		cfg.JobTimeout,
+	)
 
 	fileConfig := services.FileConfig{
-		StorageRoot: path.Join(home, "org", "uploads"),
-		MaxFilesize: 10 * MB,
+		StorageRoot: cfg.UploadPath,
+		MaxFilesize: int(cfg.MaxFileSize),
 		SupportedFiletypes: map[string]string{
 			"image/apng":    "apng",
 			"image/avif":    "avif",
@@ -93,7 +79,12 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	fileService := services.NewFileService(fileRepository, fileConfig)
 
 	// Initialize handlers
-	userHandler := handlers.NewUserHandler(userRepository, refreshTokenRepository, jwtKey, xsrfKey)
+	authConfig := handlers.AuthConfig{
+		AccessTokenDuration:  cfg.AccessTokenDuration,
+		RefreshTokenDuration: cfg.RefreshTokenDuration,
+		CookieSecure:         cfg.CookieSecure,
+	}
+	userHandler := handlers.NewUserHandler(userRepository, refreshTokenRepository, jwtKey, xsrfKey, authConfig)
 	noteHandler := handlers.NewNoteHandler(noteRepository)
 	notebookHandler := handlers.NewNotebookHandler(notebookRepository, noteRepository)
 	sectionHandler := handlers.NewSectionHandler(sectionRepository, notebookRepository)
@@ -102,9 +93,9 @@ func NewServer(ctx context.Context, pool *pgxpool.Pool) (*Server, error) {
 	fileHandler := handlers.NewFileHandler(fileService, fileConfig)
 	treeHandler := handlers.NewTreeHandler(treeRepository)
 
-	// Setup rate limiter for auth endpoints (5 requests per minute)
-	authLimiter := tollbooth.NewLimiter(5, &limiter.ExpirableOptions{
-		DefaultExpirationTTL: time.Minute,
+	// Setup rate limiter for auth endpoints
+	authLimiter := tollbooth.NewLimiter(cfg.AuthRateLimit, &limiter.ExpirableOptions{
+		DefaultExpirationTTL: cfg.RateLimitWindow,
 	})
 	authLimiter.SetMessage("Rate limit exceeded. Please try again later.")
 

@@ -16,16 +16,19 @@ import (
 	"golang.org/x/net/xsrftoken"
 )
 
-const (
-	AccessTokenDuration  = 15 * time.Minute
-	RefreshTokenDuration = 7 * 24 * time.Hour
-)
+// AuthConfig holds authentication-related configuration
+type AuthConfig struct {
+	AccessTokenDuration  time.Duration
+	RefreshTokenDuration time.Duration
+	CookieSecure         bool
+}
 
 type UserHandler struct {
 	repo             *repositories.UserRepository
 	refreshTokenRepo *repositories.RefreshTokenRepository
 	jwtKey           []byte
 	xsrfKey          []byte
+	authConfig       AuthConfig
 }
 
 func NewUserHandler(
@@ -33,8 +36,9 @@ func NewUserHandler(
 	refreshTokenRepo *repositories.RefreshTokenRepository,
 	jwtKey []byte,
 	xsrfKey []byte,
+	authConfig AuthConfig,
 ) UserHandler {
-	return UserHandler{repo, refreshTokenRepo, jwtKey, xsrfKey}
+	return UserHandler{repo, refreshTokenRepo, jwtKey, xsrfKey, authConfig}
 }
 
 func (h *UserHandler) Status(w http.ResponseWriter, r *http.Request) {
@@ -149,8 +153,8 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate access token (15 minutes)
-	accessToken, err := utils.SignAccessToken(h.jwtKey, user.ID, user.Username)
+	// Generate access token
+	accessToken, err := utils.SignAccessToken(h.jwtKey, user.ID, user.Username, h.authConfig.AccessTokenDuration)
 	if err != nil {
 		log.Printf("failed to sign access token, %v", err)
 		errors.InternalServerError(w)
@@ -167,7 +171,7 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Store refresh token hash in database
 	tokenHash := utils.HashToken(refreshToken)
-	expiresAt := time.Now().Add(RefreshTokenDuration)
+	expiresAt := time.Now().Add(h.authConfig.RefreshTokenDuration)
 	err = h.refreshTokenRepo.Insert(r.Context(), user.ID, tokenHash, expiresAt)
 	if err != nil {
 		log.Printf("failed to store refresh token, %v", err)
@@ -175,26 +179,26 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set access token cookie (15 minutes)
+	// Set access token cookie
 	jwtCookie := http.Cookie{
 		Name:     "JWT-Cookie",
 		Value:    accessToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(AccessTokenDuration.Seconds()),
+		MaxAge:   int(h.authConfig.AccessTokenDuration.Seconds()),
 	}
 
-	// Set refresh token cookie (7 days)
+	// Set refresh token cookie
 	refreshCookie := http.Cookie{
 		Name:     "REFRESH-TOKEN",
 		Value:    refreshToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(RefreshTokenDuration.Seconds()),
+		MaxAge:   int(h.authConfig.RefreshTokenDuration.Seconds()),
 	}
 
 	// Set XSRF token cookie (matches access token duration)
@@ -203,9 +207,9 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Value:    xsrftoken.Generate(string(h.xsrfKey), user.ID.String(), ""),
 		Path:     "/",
 		HttpOnly: false,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(AccessTokenDuration.Seconds()),
+		MaxAge:   int(h.authConfig.AccessTokenDuration.Seconds()),
 	}
 
 	http.SetCookie(w, &jwtCookie)
@@ -266,8 +270,8 @@ func (h *UserHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate new access token (15 minutes)
-	accessToken, err := utils.SignAccessToken(h.jwtKey, userID, user.Username)
+	// Generate new access token
+	accessToken, err := utils.SignAccessToken(h.jwtKey, userID, user.Username, h.authConfig.AccessTokenDuration)
 	if err != nil {
 		log.Printf("failed to sign access token, %v", err)
 		errors.InternalServerError(w)
@@ -284,7 +288,7 @@ func (h *UserHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	// Store new refresh token hash
 	newTokenHash := utils.HashToken(newRefreshToken)
-	expiresAt := time.Now().Add(RefreshTokenDuration)
+	expiresAt := time.Now().Add(h.authConfig.RefreshTokenDuration)
 	err = h.refreshTokenRepo.Insert(r.Context(), userID, newTokenHash, expiresAt)
 	if err != nil {
 		log.Printf("failed to store refresh token, %v", err)
@@ -298,9 +302,9 @@ func (h *UserHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		Value:    accessToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(AccessTokenDuration.Seconds()),
+		MaxAge:   int(h.authConfig.AccessTokenDuration.Seconds()),
 	}
 
 	// Set new refresh token cookie
@@ -309,9 +313,9 @@ func (h *UserHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		Value:    newRefreshToken,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(RefreshTokenDuration.Seconds()),
+		MaxAge:   int(h.authConfig.RefreshTokenDuration.Seconds()),
 	}
 
 	// Set new XSRF token cookie
@@ -320,9 +324,9 @@ func (h *UserHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		Value:    xsrftoken.Generate(string(h.xsrfKey), userID.String(), ""),
 		Path:     "/",
 		HttpOnly: false,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(AccessTokenDuration.Seconds()),
+		MaxAge:   int(h.authConfig.AccessTokenDuration.Seconds()),
 	}
 
 	http.SetCookie(w, &jwtCookie)
@@ -368,7 +372,7 @@ func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
 	}
 
@@ -379,7 +383,7 @@ func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
 	}
 
@@ -390,7 +394,7 @@ func (h *UserHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: false,
-		Secure:   true,
+		Secure:   h.authConfig.CookieSecure,
 		SameSite: http.SameSiteStrictMode,
 	}
 
